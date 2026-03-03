@@ -1,0 +1,111 @@
+{
+  "projectType": "sdk-library",
+  "projectName": "jecs",
+  "projectDescription": "A fast, portable Entity Component System for Luau with entity relationships as first-class citizens",
+  "theme": "aspen",
+  "primaryColor": "#6366F1",
+  "lightColor": "#818CF8",
+  "darkColor": "#4F46E5",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "installation",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "core/entities",
+              "core/components",
+              "core/tags",
+              "core/queries",
+              "core/archetypes"
+            ]
+          },
+          {
+            "group": "Advanced Features",
+            "pages": [
+              "advanced/relationships",
+              "advanced/pairs-wildcards",
+              "advanced/hooks-signals",
+              "advanced/query-caching",
+              "advanced/cleanup-traits"
+            ]
+          },
+          {
+            "group": "Examples",
+            "pages": [
+              "examples/basic-usage",
+              "examples/networking",
+              "examples/spatial-systems"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "API",
+            "pages": [
+              "api/world",
+              "api/query",
+              "api/types"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Resources",
+        "groups": [
+          {
+            "group": "Migration",
+            "pages": [
+              "changelog"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Iterate 800,000 entities at 60 FPS with cache-friendly archetype storage",
+    "Entity relationships as first-class citizens with pair support",
+    "Type-safe Luau API with zero dependencies",
+    "Query system with filtering, caching, and wildcard support",
+    "Lifecycle hooks and signals for component changes",
+    "Component preregistration and entity recycling"
+  ],
+  "publicApiSurface": [
+    "world.entity()",
+    "world.component()",
+    "world.set()",
+    "world.get()",
+    "world.has()",
+    "world.add()",
+    "world.remove()",
+    "world.delete()",
+    "world.query()",
+    "world.target()",
+    "world.parent()",
+    "world.children()",
+    "world.cleanup()",
+    "query.with()",
+    "query.without()",
+    "query.cached()",
+    "query.iter()",
+    "jecs.pair()",
+    "jecs.ChildOf",
+    "jecs.OnAdd",
+    "jecs.OnChange",
+    "jecs.OnRemove",
+    "jecs.Wildcard"
+  ]
+}
