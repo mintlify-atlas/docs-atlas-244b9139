@@ -1,0 +1,109 @@
+---
+title: Entities
+description: Learn about entities, entity IDs, records, and the dense/sparse array storage system in jecs
+---
+
+Entities represent things in your game. They can be characters, buildings, projectiles, particle effects, or any other game object. By itself, an entity is just a unique identifier without any data.
+
+## Creating Entities
+
+Create a new entity using `world:entity()`. This returns a unique entity identifier:
+
+```lua
+local world = jecs.world()
+local entity = world:entity()
+print(entity)  -- Prints a unique ID number
+```
+
+You can also create an entity with a specific ID by passing it as an argument:
+
+```lua
+world:entity(42)  -- Creates entity with ID 42
+```
+
+## Entity Records
+
+Each entity ID has a corresponding **entity record** that stores indices into arrays of data. The format of an entity record is:
+
+```lua
+record: {
+  row: number,
+}
+```
+
+You can retrieve an entity's record using `jecs.record()`:
+
+```lua
+local record = jecs.record(world, entity)
+print(record)
+```
+
+## Dense and Sparse Arrays
+
+Under the hood, the ECS stores entity IDs and their records in two separate arrays:
+
+- **Dense array**: `{ u53 }` - Stores entity IDs
+- **Sparse array**: `{ [u24]: record }` - Maps entity indices to their records
+
+The entity ID you work with is an element in the dense array. Although Luau uses doubles (IEEE-754 f64) for numbers, the 53-bit integer mantissa allows full precision for integers up to 2^53.
+
+<Info>
+Entity IDs use 48 bits, which is well within the 53-bit mantissa range. This allows jecs to embed both an index and a generation counter in the ID.
+</Info>
+
+## Entity ID Structure
+
+Entity IDs are 48-bit numbers with this layout:
+
+```
+[ 47 ........ 24 ][ 23 ........ 0 ]
+|   generation    |     index     |
+|    (24 bits)    |   (24 bits)   |
+```
+
+- **Index** (24 bits): Used to lookup the entity's record in the sparse array
+- **Generation** (24 bits): Increments when an entity index is reused
+
+The generation counter makes stale entity references invalid. If entity index 10 is deleted and reused, the new entity becomes index 10, generation 2. Any old references to generation 1 will no longer work.
+
+## Reading Index and Generation
+
+You can extract the index and generation from an entity ID:
+
+```lua
+local ECS_ID = jecs.ECS_ID
+local ECS_GENERATION = jecs.ECS_GENERATION
+
+local index = ECS_ID(entity)
+local generation = ECS_GENERATION(entity)
+
+print(`Entity's index and generation are {index} and {generation} respectively`)
+```
+
+## Entity Recycling
+
+When you delete an entity, its index can be reused. The generation counter increments to invalidate old references:
+
+```lua
+world:delete(entity)
+
+local recycled_entity = world:entity()
+
+print(`This is a huuuuge number {recycled_entity}`)
+print(`The recycled entity's generation incremented to {ECS_GENERATION(recycled_entity)}`)
+print(`However it retains the old index at {ECS_ID(recycled_entity)}`)
+```
+
+<Warning>
+Entity IDs can become very large as the generation increases, since higher bits represent larger powers of two.
+</Warning>
+
+## Record Lookup
+
+The entity record is retrieved using this lookup pattern:
+
+```lua
+record = sparse_array[downcast(u24)(dense_array[n])]
+```
+
+This two-level indirection allows efficient entity storage while maintaining fast lookups.

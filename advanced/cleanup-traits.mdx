@@ -1,0 +1,283 @@
+---
+title: Cleanup Traits
+description: Control resource management and prevent dangling references with OnDelete cleanup traits in jecs
+---
+
+Cleanup traits ensure your ECS never contains dangling references when entities used as tags, components, relationships, or targets are deleted. They let you specify **what action** to take **under what condition**.
+
+## Why Cleanup Traits?
+
+When you delete an entity that's used elsewhere (e.g., a component, a relationship target, or a parent), jecs needs to know what to do with all references to that entity.
+
+Cleanup traits provide this guarantee:
+
+<Info>
+**No cleanup policy allows dangling references.** Your ECS stays consistent no matter what you delete.
+</Info>
+
+### Per-Relationship Configuration
+
+Different relationships need different cleanup behaviors:
+
+- Delete a **tag** → Remove it from all entities that have it
+- Delete a **parent** → Delete all children
+- Delete a **player** → Remove ownership relationships, but don't delete the items
+
+Cleanup traits let you configure this per component/relationship.
+
+## Cleanup Structure
+
+Add a `(Condition, Action)` pair to an entity to configure its cleanup policy:
+
+```lua
+world:add(entity, pair(Condition, Action))
+```
+
+### Cleanup Conditions
+
+- **`jecs.OnDelete`**: The component/tag/relationship itself is deleted
+- **`jecs.OnDeleteTarget`**: A target used with the relationship is deleted
+
+### Cleanup Actions
+
+- **`jecs.Remove`** (default): Removes the id from all entities
+- **`jecs.Delete`**: Deletes all entities with the id
+
+<Note>
+If no cleanup policy is specified, the default action is `Remove`.
+</Note>
+
+## `(OnDelete, Remove)` - Safe Cleanup
+
+When the component is deleted, **remove it from all entities** that have it.
+
+### Example
+
+```lua
+local jecs = require("@jecs")
+local pair = jecs.pair
+local world = jecs.world()
+
+local Archer = world:entity()
+world:add(Archer, pair(jecs.OnDelete, jecs.Remove))
+
+local e1 = world:entity()
+world:add(e1, Archer)
+
+print(world:has(e1, Archer))  -- true
+
+-- Delete the Archer tag
+world:delete(Archer)
+
+print(world:has(e1, Archer))  -- false (removed from e1)
+print(world:contains(e1))     -- true (e1 still exists)
+```
+
+**Use case:** Tags, components, and most relationships
+
+## `(OnDelete, Delete)` - Cascading Deletion
+
+When the component is deleted, **delete all entities** that have it.
+
+### Example
+
+```lua
+local Boss = world:entity()
+world:add(Boss, pair(jecs.OnDelete, jecs.Delete))
+
+local e2 = world:entity()
+world:add(e2, Boss)
+
+print(world:contains(e2))  -- true
+
+-- Delete the Boss tag
+world:delete(Boss)
+
+print(world:contains(Boss))  -- false
+print(world:contains(e2))    -- false (e2 was also deleted)
+```
+
+<Warning>
+**Dangerous!** This cascades deletion to all entities with the component. Use carefully.
+</Warning>
+
+**Use case:** Temporary groups where deletion of the group should delete all members
+
+## `(OnDeleteTarget, Remove)` - Safe Relationship Cleanup
+
+When a **target** is deleted, **remove the relationship** from all entities.
+
+### Example
+
+```lua
+local OwnedBy = world:component()
+world:add(OwnedBy, pair(jecs.OnDeleteTarget, jecs.Remove))
+
+local loot = world:entity()
+local player = world:entity()
+world:add(loot, pair(OwnedBy, player))
+
+print(world:has(loot, pair(OwnedBy, player)))  -- true
+
+-- Delete the player
+world:delete(player)
+
+print(world:has(loot, pair(OwnedBy, player)))  -- false (relationship removed)
+print(world:contains(loot))                    -- true (loot still exists)
+```
+
+**Use case:** Ownership, likes, follows—relationships where target deletion should just remove the relationship
+
+## `(OnDeleteTarget, Delete)` - Hierarchical Deletion
+
+When a **target** is deleted, **delete all entities** with that relationship.
+
+### Example: ChildOf
+
+The built-in `jecs.ChildOf` uses this pattern:
+
+```lua
+-- This is how ChildOf is configured internally
+local ChildOf = world:component()
+world:add(ChildOf, pair(jecs.OnDeleteTarget, jecs.Delete))
+
+local parent = world:entity()
+local child = world:entity()
+world:add(child, pair(ChildOf, parent))
+
+print(world:contains(child))   -- true
+print(world:contains(parent))  -- true
+
+-- Delete the parent
+world:delete(parent)
+
+print(world:contains(parent))  -- false
+print(world:contains(child))   -- false (child was also deleted)
+```
+
+**Use case:** Parent-child hierarchies, where deleting a parent should delete all children
+
+<Info>
+When a parent and children are deleted, children's `OnRemove` hooks fire **before** the parent's. See [Hooks & Signals](/advanced/hooks-signals) for details.
+</Info>
+
+## Comparison Table
+
+| Trait | When Triggered | Action |
+|-------|----------------|--------|
+| `(OnDelete, Remove)` | Component deleted | Remove component from all entities |
+| `(OnDelete, Delete)` | Component deleted | Delete all entities with component |
+| `(OnDeleteTarget, Remove)` | Target deleted | Remove relationship from all entities |
+| `(OnDeleteTarget, Delete)` | Target deleted | Delete all entities with relationship |
+
+## Default Behavior
+
+If you don't specify a cleanup trait, the default is `(OnDelete, Remove)`:
+
+```lua
+local Tag = world:entity()
+-- Implicitly has (OnDelete, Remove)
+
+local e = world:entity()
+world:add(e, Tag)
+
+world:delete(Tag)  -- Tag is removed from e, but e still exists
+```
+
+## Archetype Considerations
+
+Cleanup operations can create and delete archetypes:
+
+- When a component is deleted, all archetypes with that component are deleted
+- When relationships use entities as targets, more archetypes are created on the fly
+- Extensive relationship use → more archetype creation → slightly more overhead
+
+<Tip>
+Jecs is optimized for fast archetype creation, but if you're making **extensive** use of relationships (e.g., thousands of unique parent-child pairs), be aware that archetype creation is more expensive than entity creation.
+</Tip>
+
+## Complete Example
+
+```lua
+local jecs = require("@jecs")
+local pair = jecs.pair
+local world = jecs.world()
+
+-- Tag: remove from entities when deleted
+local Goblin = world:entity()
+world:add(Goblin, pair(jecs.OnDelete, jecs.Remove))
+
+-- Ownership: remove relationship when owner is deleted
+local OwnedBy = world:component()
+world:add(OwnedBy, pair(jecs.OnDeleteTarget, jecs.Remove))
+
+-- Parent-child: delete children when parent is deleted
+local ChildOf = jecs.ChildOf  -- Built-in, has (OnDeleteTarget, Delete)
+
+local player = world:entity()
+local sword = world:entity()
+local enemy = world:entity()
+local child_enemy = world:entity()
+
+world:add(sword, pair(OwnedBy, player))
+world:add(enemy, Goblin)
+world:add(child_enemy, pair(ChildOf, enemy))
+
+print(world:contains(sword))        -- true
+print(world:contains(enemy))        -- true
+print(world:contains(child_enemy))  -- true
+
+-- Delete the player
+world:delete(player)
+print(world:has(sword, pair(OwnedBy, player)))  -- false (relationship removed)
+print(world:contains(sword))                    -- true (sword still exists)
+
+-- Delete the enemy
+world:delete(enemy)
+print(world:contains(enemy))        -- false
+print(world:contains(child_enemy))  -- false (child deleted via ChildOf trait)
+
+-- Delete the Goblin tag (if it still exists)
+local goblin2 = world:entity()
+world:add(goblin2, Goblin)
+world:delete(Goblin)
+print(world:has(goblin2, Goblin))  -- false (tag removed)
+print(world:contains(goblin2))     -- true (entity still exists)
+```
+
+## Best Practices
+
+<Check>
+**Use `(OnDeleteTarget, Remove)` for most relationships**
+
+Safe default that prevents dangling references without cascading deletion.
+</Check>
+
+<Check>
+**Use `(OnDeleteTarget, Delete)` for strict hierarchies**
+
+Parent-child relationships where children shouldn't outlive parents.
+</Check>
+
+<Warning>
+**Avoid `(OnDelete, Delete)` unless necessary**
+
+Cascading deletion can cause unexpected entity loss. Document clearly if you use it.
+</Warning>
+
+<Tip>
+**Test cleanup behavior with debug prints**
+
+When setting up new relationships, test deletion scenarios to ensure cleanup works as expected.
+</Tip>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Relationships" icon="diagram-project" href="/advanced/relationships">
+    Learn about entity relationships and hierarchies
+  </Card>
+  <Card title="Hooks & Signals" icon="bell" href="/advanced/hooks-signals">
+    React to component lifecycle events
+  </Card>
+</CardGroup>

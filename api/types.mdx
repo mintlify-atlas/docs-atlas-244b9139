@@ -1,0 +1,447 @@
+---
+title: 'Type Definitions'
+description: 'TypeScript and Luau type definitions for jecs'
+---
+
+jecs provides strong type safety through TypeScript definitions and Luau type checking. Understanding these types helps you write safer, more maintainable ECS code.
+
+## Core Types
+
+### Entity
+
+A unique identifier for an entity in the world. The generic type `T` defines the data type when this entity is used as a component.
+
+```typescript
+export type Entity<TData = unknown> = number & {
+    readonly __nominal_Entity: unique symbol
+    readonly __type_TData: TData
+}
+```
+
+```lua
+export type Entity<T = nil> = { __T: T }
+```
+
+**Usage:**
+
+```typescript
+type Position = { x: number, y: number }
+const Position: Entity<Position> = world.component<Position>()
+
+type Health = { value: number, max: number }
+const Health: Entity<Health> = world.component<Health>()
+```
+
+```lua
+type Position = { x: number, y: number }
+local Position = world:component() :: jecs.Entity<Position>
+
+type Health = { value: number, max: number }
+local Health = world:component() :: jecs.Entity<Health>
+```
+
+### Tag
+
+An entity with no associated data when used as a component. Tags are markers that indicate the presence of a characteristic without storing values.
+
+```typescript
+export type Tag = Entity<TagDiscriminator>
+```
+
+```lua
+-- Tags are entities without data
+local Alive = world:component() :: jecs.Entity<nil>
+```
+
+**Usage:**
+
+```typescript
+const Alive: Tag = world.component()
+const Dead: Tag = world.component()
+
+world.add(entity, Alive)
+if (world.has(entity, Dead)) {
+    // Handle dead entity
+}
+```
+
+```lua
+local Alive = world:component()
+local Dead = world:component()
+
+world:add(entity, Alive)
+if world:has(entity, Dead) then
+    -- Handle dead entity
+end
+```
+
+### Pair
+
+A pair of entities used for relationships. The first entity (predicate) describes the relationship type, and the second (object) is the target.
+
+```typescript
+export type Pair<P = unknown, O = unknown> = number & {
+    readonly __nominal_Pair: unique symbol
+    readonly __pred: P
+    readonly __obj: O
+}
+```
+
+```lua
+export type Pair<First=any, Second=any> = ecs_pair_t<Entity<First>, Entity<Second>>
+```
+
+**Usage:**
+
+```typescript
+import { pair } from "@jecs/core"
+
+const ChildOf = world.component()
+const parent = world.entity()
+const child = world.entity()
+
+// Create a ChildOf(parent) relationship
+const childOfParent = pair(ChildOf, parent)
+world.add(child, childOfParent)
+
+// Get the parent
+const retrievedParent = world.target(child, ChildOf)
+```
+
+```lua
+local jecs = require("@jecs")
+
+local ChildOf = jecs.ChildOf
+local parent = world:entity()
+local child = world:entity()
+
+-- Create a ChildOf(parent) relationship
+world:add(child, jecs.pair(ChildOf, parent))
+
+-- Get the parent
+local retrievedParent = world:target(child, ChildOf)
+```
+
+### Id
+
+A component identifier that can be either a single Entity or a Pair of Entities.
+
+```typescript
+export type Id<TData = unknown> = 
+    | Entity<TData> 
+    | Pair<TData, unknown> 
+    | Pair<TagDiscriminator, TData>
+```
+
+```lua
+export type Id<T = any> = { __T: T }
+```
+
+**Usage:**
+
+```typescript
+function removeComponent(entity: Entity, id: Id) {
+    world.remove(entity, id)
+}
+
+removeComponent(player, Position) // Remove entity
+removeComponent(child, pair(ChildOf, parent)) // Remove pair
+```
+
+### Component
+
+An alias for Entity used to indicate component entities.
+
+```typescript
+export type Component<T> = Entity<T>
+```
+
+```lua
+export type Component<T=any> = { __T: T }
+```
+
+## Query Types
+
+### Query
+
+A query object for searching entities with specific components.
+
+```typescript
+export type Query<T extends Id[]> = {
+    iter(): IterableFunction<[Entity, ...InferComponents<T>]>
+    cached(): CachedQuery<T>
+    with(...components: Id[]): Query<T>
+    without(...components: Id[]): Query<T>
+    archetypes(): Archetype<T>[]
+    has(entity: Entity): boolean
+} & Iterable<[Entity, ...InferComponents<T>]>
+```
+
+```lua
+export type Query<T...> = typeof(setmetatable(
+    {} :: {
+        iter: Iter<T...>,
+        with: ((Query<T...>, ...Component) -> Query<T...>),
+        without: ((Query<T...>, ...Component) -> Query<T...>),
+        archetypes: (Query<T...>) -> { Archetype },
+        cached: (Query<T...>) -> Cached_Query<T...>,
+        has: (Query<T...>, Entity) -> boolean,
+    },
+    {} :: { __iter: Iter<T...> }
+))
+```
+
+### CachedQuery
+
+A cached query for efficient repeated iterations.
+
+```typescript
+export type CachedQuery<T extends Id[]> = {
+    iter(): IterableFunction<[Entity, ...InferComponents<T>]>
+    archetypes(override?: boolean): Archetype<T>[]
+    has(entity: Entity): boolean
+    fini(): void
+} & Iterable<[Entity, ...InferComponents<T>]>
+```
+
+```lua
+export type Cached_Query<T...> = typeof(setmetatable(
+    {} :: {
+        iter: Cached_Query_Iter<T...>,
+        archetypes: (Cached_Query<T...>, override: boolean?) -> { Archetype },
+        has: (Cached_Query<T...>, Entity) -> boolean,
+        fini: (Cached_Query<T...>) -> (),
+    },
+    {} :: { __iter: Cached_Query_Iter<T...> }
+))
+```
+
+## Archetype Types
+
+### Archetype
+
+Represents a unique combination of components. Entities with the same components share an archetype.
+
+```typescript
+export type Archetype<T extends Id[]> = {
+    id: number
+    types: Entity[]
+    type: string
+    entities: Entity[]
+    columns: Column<unknown>[]
+    columns_map: { [K in T[number]]: Column<InferComponent<K>> }
+}
+```
+
+```lua
+export type Archetype = {
+    id: number,
+    types: Ty,
+    type: string,
+    entities: { Entity },
+    columns: { Column },
+    columns_map: { [Component]: Column }
+}
+```
+
+**Properties:**
+
+- `id`: Unique archetype identifier
+- `types`: Array of component entities in this archetype
+- `type`: String representation of the archetype
+- `entities`: All entities belonging to this archetype
+- `columns`: Component data storage
+- `columns_map`: Map from component to its column
+
+### Column
+
+A storage array for component data of a specific type.
+
+```typescript
+export type Column<T> = T[]
+```
+
+```lua
+type Column = { any }
+```
+
+## Utility Types
+
+### InferComponent
+
+Extracts the data type from an Entity or Pair.
+
+```typescript
+export type InferComponent<E> = 
+    E extends Entity<infer D> ? D
+    : E extends Pair<infer P, infer O> ? 
+        P extends TagDiscriminator ? O : P
+    : never
+```
+
+**Usage:**
+
+```typescript
+type Position = { x: number, y: number }
+const Position: Entity<Position> = world.component<Position>()
+
+type PositionData = InferComponent<typeof Position> // { x: number, y: number }
+```
+
+### InferComponents
+
+Maps an array of Ids to their inferred component types.
+
+```typescript
+type InferComponents<A extends Id[]> = { [K in keyof A]: InferComponent<A[K]> }
+```
+
+## Built-in Components
+
+jecs provides several built-in components and tags:
+
+### Hooks
+
+```typescript
+export declare const OnAdd: Entity<(e: Entity, id: Id, data: any) => void>
+export declare const OnRemove: Entity<(e: Entity, id: Id, deleted?: true) => void>
+export declare const OnChange: Entity<(e: Entity, id: Id, data: any) => void>
+```
+
+### Relationships
+
+```typescript
+export declare const ChildOf: Tag
+export declare const Wildcard: Entity
+export declare const w: Entity // Alias for Wildcard
+```
+
+### Cleanup Policies
+
+```typescript
+export declare const OnDelete: Tag
+export declare const OnDeleteTarget: Tag
+export declare const Delete: Tag
+export declare const Remove: Tag
+```
+
+### Other
+
+```typescript
+export declare const Component: Tag
+export declare const Name: Entity<string>
+export declare const Exclusive: Tag
+export declare const Rest: Entity
+```
+
+## Helper Functions
+
+### pair()
+
+Creates a composite key (pair) from two entities.
+
+```typescript
+export function pair<P, O>(pred: Entity<P>, obj: Entity<O>): Pair<P, O>
+```
+
+```lua
+local function pair(pred: Entity, obj: Entity): Pair
+```
+
+### IS_PAIR()
+
+Checks if an ID is a pair.
+
+```typescript
+export function IS_PAIR(value: Id): value is Pair
+```
+
+### pair_first()
+
+Gets the first entity (predicate) of a pair.
+
+```typescript
+export function pair_first<P, O>(world: World, pair: Pair<P, O>): Entity<P>
+```
+
+### pair_second()
+
+Gets the second entity (object) of a pair.
+
+```typescript
+export function pair_second<P, O>(world: World, pair: Pair<P, O>): Entity<O>
+```
+
+### ECS_ID()
+
+Extracts the ID from an entity, removing generation information.
+
+```typescript
+export function ECS_ID(entity: Entity): number
+```
+
+### ECS_GENERATION()
+
+Extracts the generation number from an entity.
+
+```typescript
+export function ECS_GENERATION(entity: Entity): number
+```
+
+## Type Safety Examples
+
+### TypeScript
+
+```typescript
+type Position = { x: number, y: number }
+type Velocity = { dx: number, dy: number }
+
+const Position = world.component<Position>()
+const Velocity = world.component<Velocity>()
+
+const entity = world.entity()
+
+// Type-safe set
+world.set(entity, Position, { x: 0, y: 0 })
+// world.set(entity, Position, { x: "invalid" }) // Error!
+
+// Type-safe get
+const pos = world.get(entity, Position) // Position | undefined
+if (pos) {
+    console.log(pos.x, pos.y) // OK
+    // console.log(pos.z) // Error: Property 'z' does not exist
+}
+
+// Type-safe query
+for (const [e, position, velocity] of world.query(Position, Velocity)) {
+    position.x += velocity.dx // All typed correctly
+    position.y += velocity.dy
+}
+```
+
+### Luau
+
+```lua
+type Position = { x: number, y: number }
+type Velocity = { dx: number, dy: number }
+
+local Position = world:component() :: jecs.Entity<Position>
+local Velocity = world:component() :: jecs.Entity<Velocity>
+
+local entity = world:entity()
+
+-- Type-safe set
+world:set(entity, Position, { x = 0, y = 0 })
+
+-- Type-safe get
+local pos = world:get(entity, Position) :: Position?
+if pos then
+    print(pos.x, pos.y) -- OK
+end
+
+-- Type-safe query
+for entity, position, velocity in world:query(Position, Velocity) do
+    position.x += velocity.dx
+    position.y += velocity.dy
+end
+```

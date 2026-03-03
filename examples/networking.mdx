@@ -1,0 +1,398 @@
+---
+title: Networking
+description: Client-server replication patterns for synchronizing entities and components across the network
+---
+
+jecs provides hooks for tracking component changes, making it straightforward to build client-server replication systems. This example shows how to replicate entities and components from server to client.
+
+## Overview
+
+The networking pattern consists of two parts:
+1. **Server**: Tracks component changes and sends snapshots to clients
+2. **Client**: Receives snapshots and applies them to the local world
+
+## Server-Side Replication
+
+The server monitors networked components and sends changes to all clients.
+
+### Key Concepts
+
+- **Networked Components**: Components marked with a `Networked` tag that should be replicated
+- **Networked Pairs**: Relationship pairs that should be replicated
+- **Change Tracking**: Using `world:added()`, `world:changed()`, and `world:removed()` hooks
+- **Snapshots**: Full state sent to new players and incremental diffs sent each frame
+
+### Server Example
+
+```lua
+local function networking_send(world: jecs.World)
+    local storages = {} :: { [jecs.Entity]: {[jecs.Entity]: any }}
+    local networked_components = {}
+    local networked_pairs = {}
+
+    -- Find all components tagged as Networked
+    for component in world:each(ct.Networked) do
+        local name = world:get(component, jecs.Name)
+        assert(name)
+        if components[name] == nil then
+            error("Invalid component:"..name)
+        end
+
+        storages[component] = {}
+        table.insert(networked_components, component)
+    end
+
+    -- Find all pairs tagged as NetworkedPair
+    for relation in world:each(ct.NetworkedPair) do
+        local name = world:get(relation, jecs.Name)
+        assert(name)
+        if not components[name] then
+            error("Invalid component")
+        end
+        table.insert(networked_pairs, relation)
+    end
+
+    -- Set up hooks to track changes for regular components
+    for _, component in networked_components do
+        local is_tag = jecs.is_tag(world, component)
+        local storage = storages[component]
+        
+        if is_tag then
+            world:added(component, function(entity)
+                storage[entity] = true
+            end)
+        else
+            world:added(component, function(entity, _, value)
+                storage[entity] = value
+            end)
+            world:changed(component, function(entity, _, value)
+                storage[entity] = value
+            end)
+        end
+
+        world:removed(component, function(entity)
+            storage[entity] = "jecs.Remove"
+        end)
+    end
+
+    -- Set up hooks for networked pairs
+    for _, relation in networked_pairs do
+        world:added(relation, function(entity: jecs.Entity, id: jecs.Id, value)
+            local is_tag = jecs.is_tag(world, id)
+            local storage = storages[id]
+            if not storage then
+                storage = {}
+                storages[id] = storage
+            end
+            if is_tag then
+                storage[entity] = true
+            else
+                storage[entity] = value
+            end
+        end)
+
+        world:changed(relation, function(entity: jecs.Id, id: jecs.Id, value)
+            local is_tag = jecs.is_tag(world, id)
+            if is_tag then
+                return
+            end
+
+            local storage = storages[id]
+            if not storage then
+                storage = {}
+                storages[id] = storage
+            end
+
+            storage[entity] = value
+        end)
+
+        world:removed(relation, function(entity, id)
+            local storage = storages[id]
+            if not storage then
+                storage = {}
+                storages[id] = storage
+            end
+
+            storage[entity] = "jecs.Remove"
+        end)
+    end
+
+    -- Return the system function that runs each frame
+    return function(_, dt: number)
+        -- Send full snapshot to newly joined players
+        for player in players_added do
+            if not snapshot_lazy then
+                snapshot_lazy, set_ids_lazy = {}, {}
+
+                for component, storage in storages do
+                    local set_values = {}
+                    local set_n = 0
+
+                    local q = world:query(component)
+                    local is_tag = jecs.is_tag(world, component)
+                    for _, archetype in q:archetypes() do
+                        local entities = archetype.entities
+                        local entities_len = #entities
+                        table.move(entities, 1, entities_len, set_n + 1, set_ids_lazy)
+                        if not is_tag then
+                            local column = archetype.columns_map[component]
+                            table.move(column, 1, entities_len, set_n + 1, set_values)
+                        end
+
+                        set_n += entities_len
+                    end
+
+                    local set = table.move(set_ids_lazy, 1, set_n, 1, table.create(set_n))
+
+                    local map = {
+                        set = if set_n > 0 then set else nil,
+                        values = if set_n > 0 then set_values else nil,
+                    }
+
+                    if jecs.IS_PAIR(component) then
+                        map.relation = jecs.pair_first(world, component)
+                        map.target = jecs.pair_second(world, component)
+                        map.pair = true
+                    end
+                    snapshot_lazy[tostring(component)] = map
+                end
+            end
+
+            remotes.replication:FireClient(player, snapshot_lazy)
+        end
+
+        -- Build and send incremental diff to all clients
+        local snapshot = {} :: ty.snapshot
+        local set_ids = {}
+        local removed_ids = {}
+
+        for component, storage in storages do
+            local set_values = {} :: { any }
+            local set_n = 0
+            local removed_n = 0
+            local component_is_a_tag = jecs.is_tag(world, component)
+            
+            for e, v in storage do
+                if v ~= "jecs.Remove" then
+                    set_n += 1
+                    set_ids[set_n] = e
+                    set_values[set_n] = if component_is_a_tag then 0 else v
+                elseif world:contains(e) then
+                    removed_n += 1
+                    removed_ids[removed_n] = e
+                end
+            end
+
+            table.clear(storage)
+
+            if set_n > 0 or removed_n > 0 then
+                local removed = table.move(removed_ids, 1, removed_n, 1, {})
+                local set = table.move(set_ids, 1, set_n, 1, {})
+
+                local map = {
+                    set = if set_n > 0 then set else nil,
+                    values = if set_n > 0 then set_values else nil,
+                    removed = if removed_n > 0 then removed else nil,
+                }
+
+                if jecs.IS_PAIR(component) then
+                    map.relation = jecs.pair_first(world, component)
+                    map.target = jecs.pair_second(world, component)
+                    map.pair = true
+                end
+
+                snapshot[tostring(component)] = map
+            end
+        end
+        
+        if next(snapshot) ~= nil then
+            remotes.replication:FireAllClients(snapshot)
+        end
+    end
+end
+```
+
+## Client-Side Replication
+
+The client receives snapshots and applies them to its local world.
+
+### Key Concepts
+
+- **Entity Mapping**: Server entity IDs are mapped to client entity IDs
+- **Entity Deserialization**: Creating or finding the correct local entity for server entities
+- **Component Application**: Setting, adding, or removing components based on snapshot data
+
+### Client Example
+
+```lua
+local client_ids: {[jecs.Entity]: jecs.Entity<nil> } = {}
+
+local function ecs_ensure_entity(world: jecs.World, id: jecs.Entity)
+    local ser_id = id
+    local deser_id = client_ids[ser_id]
+    
+    if deser_id then
+        if deser_id == 0::any then
+            local new_id = world:entity()
+            client_ids[ser_id] = new_id
+            deser_id = new_id
+        end
+    else
+        if not world:exists(ser_id)
+            or (world:contains(ser_id) and not world:get(ser_id, jecs.Name))
+        then
+            deser_id = world:entity()
+        else
+            if world:contains(ser_id) and world:get(ser_id, jecs.Name) then
+                deser_id = ser_id
+            else
+                deser_id = world:entity()
+            end
+        end
+        client_ids[ser_id] = deser_id
+    end
+
+    return deser_id
+end
+
+local function ecs_deser_pairs(world, rel: jecs.Entity, tgt: jecs.Entity)
+    rel = ecs_ensure_entity(world, rel)
+    tgt = ecs_ensure_entity(world, tgt)
+    return jecs.pair(rel, tgt)
+end
+
+return function(world: jecs.World)
+    -- Clean up destroyed entities
+    for entity in world:each(components.Destroy) do
+        client_ids[entity] = nil
+    end
+    
+    -- Process all incoming snapshots
+    for snapshot in snapshots do
+        for ser_id, map in snapshot do
+            local id = (tonumber(ser_id) :: any) :: jecs.Entity
+            
+            if jecs.IS_PAIR(id) and map.pair == true then
+                id = ecs_deser_pairs(world, map.relation, map.target)
+            elseif id then
+                id = ecs_ensure_entity(world, id)
+            end
+            
+            local members = world:get(id, components.NetworkedMembers)
+
+            -- Apply component additions/updates
+            local set = map.set
+            if set then
+                if jecs.is_tag(world, id) then
+                    for _, entity in set do
+                        entity = ecs_ensure_entity(world, entity)
+                        world:add(entity, id)
+                    end
+                else
+                    local values = map.values :: { any }
+                    for i, entity in set do
+                        entity = ecs_ensure_entity(world, entity)
+                        local value = values[i]
+                        
+                        -- Handle entity references in component data
+                        if members then
+                            for _, member in members do
+                                local data = value[member]
+                                if typeof(data) == "table" then
+                                    for pos, tgt in data :: { jecs.Entity } do
+                                        data[pos] = ecs_ensure_entity(world, tgt)
+                                    end
+                                else
+                                    value[member] = ecs_ensure_entity(world, data :: any)
+                                end
+                            end
+                        end
+                        world:set(entity, id, value)
+                    end
+                end
+            end
+
+            -- Apply component removals
+            local removed = map.removed
+            if removed then
+                for _, entity in removed do
+                    entity = ecs_ensure_entity(world, entity)
+                    world:remove(entity, id)
+                end
+            end
+        end
+    end
+end
+```
+
+## How It Works
+
+<Steps>
+  <Step title="Mark Components for Replication">
+    Tag components with `Networked` or `NetworkedPair` to include them in replication
+  </Step>
+  
+  <Step title="Server Tracks Changes">
+    The server sets up hooks that store component changes in memory each frame
+  </Step>
+  
+  <Step title="Server Sends Snapshots">
+    New players receive a full snapshot. All players receive incremental diffs
+  </Step>
+  
+  <Step title="Client Receives and Applies">
+    The client maps server entities to local entities and applies component changes
+  </Step>
+</Steps>
+
+<Warning>
+This is a foundational example. Production systems should add:
+- Bandwidth optimization
+- Relevancy filtering (only send nearby entities)
+- Interpolation for smooth movement
+- Authority validation
+</Warning>
+
+## Key Patterns
+
+### Change Tracking Hooks
+
+```lua
+world:added(component, function(entity, _, value)
+    storage[entity] = value
+end)
+
+world:changed(component, function(entity, _, value)
+    storage[entity] = value
+end)
+
+world:removed(component, function(entity)
+    storage[entity] = "jecs.Remove"
+end)
+```
+
+### Entity ID Mapping
+
+```lua
+local client_ids: {[jecs.Entity]: jecs.Entity<nil> } = {}
+
+local function ecs_ensure_entity(world: jecs.World, id: jecs.Entity)
+    local deser_id = client_ids[id]
+    if not deser_id then
+        deser_id = world:entity()
+        client_ids[id] = deser_id
+    end
+    return deser_id
+end
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Spatial Systems" href="/examples/spatial-systems" icon="grid">
+    Efficient spatial queries with voxel grids
+  </Card>
+  <Card title="Basic Usage" href="/examples/basic-usage" icon="rocket">
+    Start with the fundamentals of jecs
+  </Card>
+</CardGroup>

@@ -1,0 +1,475 @@
+---
+title: 'World API'
+description: 'Complete API reference for the World class'
+---
+
+The `World` is the main container for all entities, components, and systems in jecs. It manages the ECS registry and provides methods for entity manipulation, querying, and lifecycle management.
+
+## Creating a World
+
+### world()
+
+Creates a new World instance.
+
+<ParamField path="DEBUG" type="boolean" optional>
+  Enable debug mode for better error messages and assertions
+</ParamField>
+
+**Returns:** `World`
+
+```lua
+local jecs = require("@jecs")
+local world = jecs.world()
+```
+
+```typescript
+import { world } from "@jecs/core"
+const myWorld = world()
+```
+
+## Entity Management
+
+### entity()
+
+Creates a new entity in the world.
+
+<ParamField path="id" type="Entity" optional>
+  Optional entity ID to create. If provided, creates an entity with that specific ID.
+</ParamField>
+
+**Returns:** `Entity` (Tag if no ID provided)
+
+```lua
+local player = world:entity()
+```
+
+```typescript
+const player = world.entity()
+```
+
+### component()
+
+Creates a new component entity in the first 256 IDs for fast access. These are static components optimized for performance.
+
+<ParamField path="TData" type="type" optional>
+  The type of data this component will store
+</ParamField>
+
+**Returns:** `Entity<TData>`
+
+```lua
+local Position = world:component()
+```
+
+```typescript
+const Position = world.component<{ x: number, y: number }>()
+```
+
+### delete()
+
+Completely removes an entity from the world, including all its components and relationships.
+
+<ParamField path="entity" type="Entity" required>
+  The entity to delete
+</ParamField>
+
+```lua
+world:delete(player)
+```
+
+```typescript
+world.delete(player)
+```
+
+### clear()
+
+Removes all components and relationships from an entity, but keeps the entity alive in the world.
+
+<ParamField path="entity" type="Entity" required>
+  The entity to clear
+</ParamField>
+
+```lua
+world:clear(entity)
+```
+
+```typescript
+world.clear(entity)
+```
+
+### contains()
+
+Checks if an entity exists in the world.
+
+<ParamField path="entity" type="Entity | number" required>
+  The entity to check
+</ParamField>
+
+**Returns:** `boolean`
+
+```lua
+if world:contains(player) then
+    print("Player exists")
+end
+```
+
+```typescript
+if (world.contains(player)) {
+    console.log("Player exists")
+}
+```
+
+### exists()
+
+Checks if an entity with the given ID is currently alive, ignoring its generation.
+
+<ParamField path="entity" type="Entity" required>
+  The entity to verify
+</ParamField>
+
+**Returns:** `boolean`
+
+```lua
+if world:exists(entity) then
+    -- Entity ID exists
+end
+```
+
+## Component Operations
+
+### set()
+
+Sets a component value on an entity, or installs a hook on a component.
+
+#### Set Component Value
+
+<ParamField path="entity" type="Entity" required>
+  The target entity
+</ParamField>
+
+<ParamField path="component" type="Id" required>
+  The component or pair to set
+</ParamField>
+
+<ParamField path="value" type="T" required>
+  The value to store
+</ParamField>
+
+```lua
+world:set(player, Position, { x = 10, y = 20 })
+```
+
+```typescript
+world.set(player, Position, { x: 10, y: 20 })
+```
+
+#### Install Hook
+
+<ParamField path="component" type="Entity<T>" required>
+  The component to hook
+</ParamField>
+
+<ParamField path="hook" type="OnAdd | OnChange | OnRemove" required>
+  The hook type to install
+</ParamField>
+
+<ParamField path="callback" type="function" required>
+  The callback function: `(entity, id, value) => void`
+</ParamField>
+
+```lua
+world:set(Position, jecs.OnAdd, function(entity, id, value)
+    print("Position added to entity", entity)
+end)
+```
+
+### add()
+
+Adds a tag component (with no value) to an entity.
+
+<ParamField path="entity" type="Entity" required>
+  The target entity
+</ParamField>
+
+<ParamField path="component" type="Tag" required>
+  The tag component to add
+</ParamField>
+
+```lua
+local Alive = world:component()
+world:add(player, Alive)
+```
+
+```typescript
+const Alive = world.component()
+world.add(player, Alive)
+```
+
+### get()
+
+Retrieves component values from an entity. Supports up to 4 components at once.
+
+<ParamField path="entity" type="Entity" required>
+  The entity to query
+</ParamField>
+
+<ParamField path="components" type="Id[]" required>
+  1-4 components to retrieve
+</ParamField>
+
+**Returns:** Component value(s) or `undefined` if not present
+
+```lua
+local position = world:get(player, Position)
+local pos, vel = world:get(player, Position, Velocity)
+```
+
+```typescript
+const position = world.get(player, Position)
+const [pos, vel] = world.get(player, Position, Velocity)
+```
+
+### has()
+
+Checks if an entity has all specified components. Supports up to 4 components.
+
+<ParamField path="entity" type="Entity" required>
+  The entity to check
+</ParamField>
+
+<ParamField path="components" type="Id[]" required>
+  1-4 components to check for
+</ParamField>
+
+**Returns:** `boolean`
+
+```lua
+if world:has(player, Position, Velocity) then
+    -- Player has both components
+end
+```
+
+```typescript
+if (world.has(player, Position, Velocity)) {
+    // Player has both components
+}
+```
+
+### remove()
+
+Removes a component from an entity.
+
+<ParamField path="entity" type="Entity" required>
+  The target entity
+</ParamField>
+
+<ParamField path="component" type="Id" required>
+  The component to remove
+</ParamField>
+
+```lua
+world:remove(player, Position)
+```
+
+```typescript
+world.remove(player, Position)
+```
+
+## Querying
+
+### query()
+
+Creates a query to search for entities with specific components.
+
+<ParamField path="components" type="Id[]" required>
+  Components to query for
+</ParamField>
+
+**Returns:** `Query<T>` - See [Query API](/api/query)
+
+```lua
+for entity, position, velocity in world:query(Position, Velocity) do
+    position.x = position.x + velocity.x
+end
+```
+
+```typescript
+for (const [entity, position, velocity] of world.query(Position, Velocity)) {
+    position.x += velocity.x
+}
+```
+
+### each()
+
+Iterates over all entities that have a specific component or relationship.
+
+<ParamField path="id" type="Id" required>
+  The component or relationship to search for
+</ParamField>
+
+**Returns:** Iterator function yielding entities
+
+```lua
+for entity in world:each(Position) do
+    print("Entity with Position:", entity)
+end
+```
+
+## Relationships
+
+### target()
+
+Gets the target entity of a relationship. For example, with `ChildOf(parent)`, this returns the parent entity.
+
+<ParamField path="entity" type="Entity" required>
+  The entity with the relationship
+</ParamField>
+
+<ParamField path="relation" type="Entity" required>
+  The relationship component (e.g., ChildOf)
+</ParamField>
+
+<ParamField path="index" type="number" optional default="0">
+  Index if multiple targets exist
+</ParamField>
+
+**Returns:** `Entity | undefined`
+
+```lua
+local parent = world:target(entity, jecs.ChildOf)
+```
+
+```typescript
+const parent = world.target(entity, ChildOf)
+```
+
+### parent()
+
+Gets the parent entity (target of ChildOf relationship).
+
+<ParamField path="entity" type="Entity" required>
+  The entity to get the parent of
+</ParamField>
+
+**Returns:** `Entity | undefined`
+
+```lua
+local parent = world:parent(child)
+```
+
+```typescript
+const parent = world.parent(child)
+```
+
+### children()
+
+Iterates over all child entities of a parent.
+
+<ParamField path="parent" type="Entity" required>
+  The parent entity
+</ParamField>
+
+**Returns:** Iterator function yielding child entities
+
+```lua
+for child in world:children(parent) do
+    print("Child:", child)
+end
+```
+
+## Change Detection
+
+### added()
+
+Registers a listener for when a component is added to any entity.
+
+<ParamField path="component" type="Entity<T>" required>
+  The component to listen for
+</ParamField>
+
+<ParamField path="listener" type="function" required>
+  Callback: `(entity, id, value) => void`
+</ParamField>
+
+**Returns:** Cleanup function `() => void`
+
+```lua
+local disconnect = world:added(Position, function(entity, id, value)
+    print("Position added:", value)
+end)
+
+-- Later: disconnect()
+```
+
+### changed()
+
+Registers a listener for when a component value changes.
+
+<ParamField path="component" type="Entity<T>" required>
+  The component to listen for
+</ParamField>
+
+<ParamField path="listener" type="function" required>
+  Callback: `(entity, id, value) => void`
+</ParamField>
+
+**Returns:** Cleanup function `() => void`
+
+```lua
+world:changed(Health, function(entity, id, value)
+    if value <= 0 then
+        print("Entity died")
+    end
+end)
+```
+
+### removed()
+
+Registers a listener for when a component is removed from an entity.
+
+<ParamField path="component" type="Entity<T>" required>
+  The component to listen for
+</ParamField>
+
+<ParamField path="listener" type="function" required>
+  Callback: `(entity, id, deleted?) => void`
+</ParamField>
+
+**Returns:** Cleanup function `() => void`
+
+```lua
+world:removed(Position, function(entity, id, deleted)
+    print("Position removed, entity deleted:", deleted)
+end)
+```
+
+## Utility
+
+### range()
+
+Enforces entity creation within a specific ID range.
+
+<ParamField path="range_begin" type="number" required>
+  Starting ID for the range
+</ParamField>
+
+<ParamField path="range_end" type="number" optional>
+  Ending ID for the range (optional)
+</ParamField>
+
+```lua
+world:range(1000, 2000)
+local entity = world:entity() -- Will be in range 1000-2000
+```
+
+### cleanup()
+
+Cleans up the world by removing empty archetypes and rebuilding archetype collections. Helps maintain memory efficiency.
+
+```lua
+world:cleanup()
+```
+
+```typescript
+world.cleanup()
+```

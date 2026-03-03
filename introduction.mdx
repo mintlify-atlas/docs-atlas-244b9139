@@ -1,0 +1,77 @@
+---
+title: Introduction
+description: A stupidly fast Entity Component System for Luau with entity relationships as first-class citizens
+---
+
+# Introduction to jecs
+
+jecs is a high-performance Entity Component System (ECS) for Luau that prioritizes speed, type safety, and developer experience. Built with cache-friendly archetype/SoA storage, jecs can iterate through 800,000 entities at 60 frames per second.
+
+## Key Features
+
+<CardGroup cols={2}>
+  <Card title="Blazing Fast Performance" icon="bolt">
+    Iterate 800,000 entities at 60 FPS with optimized column-major operations and cache-friendly archetype storage
+  </Card>
+  
+  <Card title="Entity Relationships" icon="link">
+    Build complex game logic with entity relationships as first-class citizens
+  </Card>
+  
+  <Card title="Type-Safe API" icon="shield-check">
+    Full Luau type safety ensures compile-time type checking for components and queries
+  </Card>
+  
+  <Card title="Zero Dependencies" icon="cube">
+    Lightweight package with no external dependencies - just pure performance
+  </Card>
+  
+  <Card title="Battle Tested" icon="vial">
+    Rigorously unit tested for stability and reliability in production environments
+  </Card>
+  
+  <Card title="Cache Optimized" icon="gauge-high">
+    Archetype/SoA storage pattern maximizes CPU cache efficiency for maximum throughput
+  </Card>
+</CardGroup>
+
+## Performance Benchmarks
+
+jecs delivers exceptional performance across common ECS operations:
+
+- **Query Performance**: 21,000 entities across 125 archetypes with 4 random components queried efficiently
+- **Insertion Performance**: Insert 8 components to an entity and update them over 50 times with minimal overhead
+
+## What is an ECS?
+
+An Entity Component System is a software architectural pattern used primarily in game development that separates data from behavior:
+
+- **Entities** represent things in your game (characters, buildings, projectiles, etc.)
+- **Components** are data attached to entities (Position, Health, Velocity, etc.)
+- **Systems** contain the logic that operates on entities with specific components
+
+This pattern enables high performance through cache-friendly data layouts and promotes code reusability through composition over inheritance.
+
+## Get Started
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Jump right in with a quick tutorial showing world creation, entities, and queries
+  </Card>
+  
+  <Card title="Installation" icon="download" href="/installation">
+    Install jecs using npm, yarn, pnpm, or Wally for Roblox projects
+  </Card>
+</CardGroup>
+
+## Community & Support
+
+jecs is open source and actively maintained on [GitHub](https://github.com/Ukendio/jecs). The repository includes:
+
+- **how_to**: Step-by-step introduction to ECS concepts and design patterns
+- **modules**: Ready-to-use modules to help you hit the ground running
+- **examples**: Real-world programs showcasing how everything fits together
+
+<Info>
+  For Roblox Studio users, you can download an importable model file from the [GitHub Actions artifacts](https://nightly.link/Ukendio/jecs/workflows/build-studio-docs.yaml/main/studio_docs.zip).
+</Info>

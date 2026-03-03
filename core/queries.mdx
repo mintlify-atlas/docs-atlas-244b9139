@@ -1,0 +1,176 @@
+---
+title: Queries
+description: Learn about the query system, iteration, and filtering with with/without in jecs
+---
+
+Queries enable games to quickly find entities that satisfy provided conditions. In jecs, queries can match simple component lists or complex entity graphs using relationships.
+
+## Basic Queries
+
+Use `world:query()` to iterate over entities with specific components:
+
+```lua
+local world = jecs.world()
+
+local Position = world:component() :: jecs.Id<vector>
+local Velocity = world:component() :: jecs.Id<vector>
+
+for entity, pos, vel in world:query(Position, Velocity) do
+    -- Process entities with both Position and Velocity
+end
+```
+
+The query returns:
+1. The entity ID
+2. The component values in the order you specified
+
+<Info>
+To match a query, an entity must have **all** the requested components. This is an AND operation, not an OR.
+</Info>
+
+## Query Matching
+
+A component is any single ID that can be added to an entity. This includes tags and regular entities (IDs that do not have the builtin `Component` component).
+
+```lua
+local e1 = world:entity()
+world:add(e1, Position)
+
+local e2 = world:entity()
+world:add(e2, Position)
+world:add(e2, Velocity)
+
+local e3 = world:entity()
+world:add(e3, Position)
+world:add(e3, Velocity)
+local Mass = world:component()
+world:add(e3, Mass)
+
+-- Only entities e2 and e3 match the query Position, Velocity
+for entity, pos, vel in world:query(Position, Velocity) do
+    print(`Entity {entity} has Position and Velocity`)
+end
+```
+
+In this example:
+- `e1` is **not** matched (only has Position)
+- `e2` is matched (has Position and Velocity)
+- `e3` is matched (has Position, Velocity, and Mass)
+
+## Filtering with `with()`
+
+Use `query:with()` when you need entities to have components but don't care about their values:
+
+```lua
+local Dead = jecs.tag()
+local world = jecs.world()
+
+-- Get position and velocity, but only for entities that are NOT dead
+for entity, pos, vel in world:query(Position, Velocity):with(Dead) do
+    -- Only processes entities with Position, Velocity, AND Dead
+    -- Dead tag is not returned in the iteration
+end
+```
+
+This is more efficient than querying for the component and ignoring it, because the query doesn't fetch the data.
+
+## Filtering with `without()`
+
+Use `query:without()` to exclude entities that have specific components:
+
+```lua
+-- Get all entities with Position and Velocity, but NOT Dead
+for entity, pos, vel in world:query(Position, Velocity):without(Dead) do
+    -- Only processes entities that are alive
+end
+```
+
+You can chain multiple filters:
+
+```lua
+for entity, pos, vel in world:query(Position, Velocity)
+    :without(Dead)
+    :without(Frozen)
+    :with(Active) do
+    -- Only processes entities that are alive, not frozen, and active
+end
+```
+
+## Cached Queries
+
+For queries you run frequently, use `cached()` to create a reusable query:
+
+```lua
+local moving_query = world:query(Position, Velocity):cached()
+
+-- Use the cached query multiple times
+for entity, pos, vel in moving_query do
+    -- Process moving entities
+end
+```
+
+Cached queries:
+- Store the list of matching archetypes
+- Update automatically when entities change
+- Are more efficient for repeated iterations
+
+<Warning>
+Call refinement methods like `with()` and `without()` **before** caching the query. You cannot refine a cached query.
+</Warning>
+
+## Accessing Archetypes
+
+For maximum performance, you can iterate directly over archetypes to eliminate function call overhead:
+
+```lua
+local query = world:query(Position, Velocity)
+
+for _, archetype in query:archetypes() do
+    local entities = archetype.entities
+    local positions = archetype.columns_map[Position]
+    local velocities = archetype.columns_map[Velocity]
+    
+    for i, entity in entities do
+        local pos = positions[i]
+        local vel = velocities[i]
+        -- Process with minimal overhead
+    end
+end
+```
+
+This eliminates 60-80% of iteration cost by removing function call overhead.
+
+<Note>
+Direct archetype iteration is an advanced optimization. Use regular query iteration unless you have a proven performance bottleneck.
+</Note>
+
+## Query Features Summary
+
+- **Relationship pairs**: Match against entity graphs without complex data structures
+- **Filters**: Use `with()` and `without()` to refine matches
+- **Draining/resetting**: Choose iterator behavior
+- **Dynamic IDs**: Query with any ID, including dynamically created entities
+- **Performance**: Already fast, but can be further optimized with `archetypes()`
+
+## Example: Complete System
+
+```lua
+local world = jecs.world()
+
+local Position = world:component() :: jecs.Id<vector>
+local Velocity = world:component() :: jecs.Id<vector>
+local Dead = jecs.tag()
+
+-- Create some entities
+for i = 1, 100 do
+    local entity = world:entity()
+    world:set(entity, Position, vector.create(0, 0, 0))
+    world:set(entity, Velocity, vector.create(1, 0, 0))
+end
+
+-- Movement system: update position based on velocity
+local dt = 1/60
+for entity, pos, vel in world:query(Position, Velocity):without(Dead) do
+    world:set(entity, Position, pos + vel * dt)
+end
+```

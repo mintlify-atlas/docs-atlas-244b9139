@@ -1,0 +1,134 @@
+---
+title: Components
+description: Learn how components work as storage keys and how to use world:component(), world:set(), and world:get()
+---
+
+A component is something that is added to an entity. Components can tag an entity ("this entity is an Npc"), attach data to an entity ("this entity is at Position Vector3.new(10, 20, 30)"), and create relationships between entities.
+
+## Components as Storage Keys
+
+Components are **keys to ECS storage columns**. Think of the ECS storage as a table where:
+
+- **Rows** are entities
+- **Columns** are components
+- **Cells** are the component data for that entity
+
+When you create a component, you're creating a key that you'll use to index into the storage. The component ID tells the ECS "I want to access the Position column" or "I want to access the Health column".
+
+<Info>
+The component ID is just a number, but it's been registered with the world. This registration allows the ECS to know about the component and allocate storage for it when entities use it.
+</Info>
+
+## Creating Components
+
+Create a component using `world:component()` with a type annotation:
+
+```lua
+local world = jecs.world()
+
+local Position = world:component() :: jecs.Id<vector>
+local Health = world:component() :: jecs.Id<number>
+
+print(`Position component ID: {Position}`)
+print(`Health component ID: {Health}`)
+```
+
+Components must be created before you can use them. If you try to use an unregistered number as a component ID, the ECS will throw a runtime error.
+
+## Setting Component Values
+
+Use `world:set()` to set a component's value for an entity:
+
+```lua
+local entity = world:entity()
+
+-- Set initial values
+world:set(entity, Position, vector.create(10, 20, 30))
+world:set(entity, Health, 100)
+```
+
+The `world:set()` function:
+
+- **Adds** the component if the entity doesn't have it
+- **Updates** the component if the entity already has it
+- Enforces type safety (the value must match the component's type)
+
+```lua
+-- Update values (set works for both adding and updating)
+world:set(entity, Position, vector.create(40, 50, 60))
+world:set(entity, Health, 50)
+```
+
+<Note>
+`world:set()` acts as both an add and update operation. You don't need separate functions for adding vs. updating components.
+</Note>
+
+## Getting Component Values
+
+Use `world:get()` to retrieve a component's value from an entity:
+
+```lua
+local pos = world:get(entity, Position)
+local health = world:get(entity, Health)
+
+print(`Entity position: {pos}`)
+print(`Entity health: {health}`)
+```
+
+The return type is `T?` (T or nil), not just `T`. The entity might not have the component, or the entity might have been deleted. Always handle the nil case:
+
+```lua
+-- Handle the nil case
+local maybe_pos = world:get(entity, Position)
+if maybe_pos then
+    print(`Position exists: {maybe_pos}`)
+else
+    print("Entity doesn't have Position")
+end
+
+-- Or use assert if you know it should exist
+local pos_assert = assert(world:get(entity, Position))
+print(`Position (asserted): {pos_assert}`)
+```
+
+## Removing Components
+
+Use `world:remove()` to remove a component from an entity:
+
+```lua
+-- Remove a component
+world:remove(entity, Health)
+
+-- Now Health is gone
+print(`Health after remove: {world:get(entity, Health)}`)  -- nil
+
+-- Position is still there
+print(`Position after removing Health: {world:get(entity, Position)}`)
+```
+
+The `world:remove()` function:
+
+- Removes the component and its data from the entity
+- Is **idempotent** (safe to call multiple times)
+- Does **not** delete the entity itself (use `world:delete()` for that)
+
+```lua
+-- Removing a component that doesn't exist does nothing
+world:remove(entity, Health)  -- Safe to call again
+```
+
+## Mental Model
+
+Components are keys to storage columns. When you use `set()`, `get()`, or `remove()`, you're using the component ID to index into the ECS storage:
+
+```lua
+set(entity, Position, value)  ->  storage[Position][entity] = value
+get(entity, Position)         ->  return storage[Position][entity]
+remove(entity, Position)      ->  storage[Position][entity] = nil
+```
+
+This is the fundamental abstraction of the ECS: components are column keys, entities are row keys, and the storage is a two-dimensional table.
+
+<Info>
+In reality, the storage uses archetypes for efficiency, but this mental model is useful for understanding how the APIs work. See [Archetypes](/core/archetypes) for more details.
+</Info>

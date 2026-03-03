@@ -1,80 +1,244 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quickstart
+description: Get started with jecs by creating your first world, entities, and components
 ---
 
-## Get started in three steps
+# Quickstart Guide
 
-Get your documentation site running locally and make your first customization.
+This guide will walk you through the basics of jecs: creating a world, defining components, creating entities, and querying them.
 
-### Step 1: Set up your local environment
+## Creating a World
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
+The world is the foundation of your ECS. It stores entities and their components, and manages all ECS operations.
 
-### Step 2: Deploy your changes
+```lua
+local jecs = require("@jecs")
+local world = jecs.world()
+```
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+<Info>
+  A world is required for every ECS operation. You'll reference it throughout your application.
+</Info>
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+## Defining Components
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+Components are typed data containers that you attach to entities. Think of them as columns in a database table.
 
-### Step 3: Go live
+<Steps>
+  <Step title="Create component IDs">
+    Use `world:component()` to register component types:
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+    ```lua
+    local Position = world:component() :: jecs.Id<vector>
+    local Health = world:component() :: jecs.Id<number>
+    ```
 
-## Next steps
+    The type annotation `:: jecs.Id<Type>` provides type safety, ensuring you can only assign values of the correct type to entities.
+  </Step>
 
-Now that you have your docs running, explore these key features:
+  <Step title="Understand component IDs">
+    Components are keys to ECS storage columns. When you create a component, you're creating a key that indexes into the storage:
 
-<CardGroup cols={2}>
+    - **Rows** are entities
+    - **Columns** are components  
+    - **Cells** are the component data for that entity
 
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
+    ```lua
+    print(`Position component ID: {Position}`)
+    print(`Health component ID: {Health}`)
+    ```
+  </Step>
+</Steps>
 
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
+## Creating Entities
 
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
+Entities represent things in your game - characters, buildings, projectiles, etc. By themselves, entities are just unique identifiers.
 
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
+```lua
+-- Create an empty entity
+local entity = world:entity()
+print(entity)
 
-</CardGroup>
+-- Create an entity with a specific ID (bypasses the entity range)
+world:entity(42)
+```
 
 <Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
+  Entity IDs contain both an index and a generation counter. The generation increments when an entity is recycled, preventing stale references.
 </Note>
+
+## Working with Component Data
+
+Now let's add data to entities and retrieve it.
+
+### Setting Component Values
+
+Use `world:set()` to attach data to entities:
+
+```lua
+local entity = world:entity()
+
+-- Set initial values
+world:set(entity, Position, vector.create(10, 20, 30))
+world:set(entity, Health, 100)
+
+-- Update values (set works for both adding and updating)
+world:set(entity, Position, vector.create(40, 50, 60))
+world:set(entity, Health, 50)
+```
+
+The type system enforces that the value matches the component's type:
+
+```lua
+-- This works:
+world:set(entity, Position, vector.create(1, 2, 3))
+
+-- This would cause a type error:
+-- world:set(entity, Position, "invalid")  -- Error: string is not assignable to vector
+```
+
+### Getting Component Values
+
+Use `world:get()` to retrieve component data:
+
+```lua
+local pos = world:get(entity, Position)
+local health = world:get(entity, Health)
+
+print(`Entity position: {pos}`)
+print(`Entity health: {health}`)
+```
+
+<Note>
+  `world:get()` returns `T?` (the type or nil), not just `T`. Always handle the nil case or use `assert()` if you know the component exists.
+</Note>
+
+### Handling Optional Components
+
+<CodeGroup>
+```lua Check for nil
+local maybe_pos = world:get(entity, Position)
+if maybe_pos then
+    print(`Position exists: {maybe_pos}`)
+else
+    print("Entity doesn't have Position")
+end
+```
+
+```lua Use assert
+-- If you know it should exist
+local pos = assert(world:get(entity, Position))
+print(`Position (asserted): {pos}`)
+```
+</CodeGroup>
+
+### Removing Components
+
+Use `world:remove()` to remove a component from an entity:
+
+```lua
+-- Remove a component
+world:remove(entity, Health)
+
+print(`Health after remove: {world:get(entity, Health)}`)  -- nil
+print(`Position still exists: {world:get(entity, Position)}`)  -- still has value
+
+-- Removing a component that doesn't exist does nothing (idempotent)
+world:remove(entity, Health)  -- Safe to call again
+```
+
+<Info>
+  `world:remove()` only removes the component, not the entire entity. Use `world:delete(entity)` to delete the entity completely.
+</Info>
+
+## Complete Example
+
+Here's a complete example putting it all together:
+
+```lua
+local jecs = require("@jecs")
+local world = jecs.world()
+
+-- Define components
+local Position = world:component() :: jecs.Id<vector>
+
+-- Create an entity
+local entity = world:entity()
+
+-- Set component data
+world:set(entity, Position, vector.create(1, 2, 3))
+
+-- Get component data
+local position = world:get(entity, Position)
+print(`Entity's Position is {position}`)
+```
+
+## Understanding Entity IDs
+
+Entity IDs use a 48-bit format that encodes both an index and a generation:
+
+```
+[ 47 ........ 24 ][ 23 ........ 0 ]
+|   generation    |     index     |
+|    (24 bits)    |   (24 bits)   |
+```
+
+You can access these values using the public API:
+
+```lua
+local ECS_ID = jecs.ECS_ID
+local ECS_GENERATION = jecs.ECS_GENERATION
+
+local index = ECS_ID(entity)
+local generation = ECS_GENERATION(entity)
+
+print(`Entity's index and generation are {index} and {generation} respectively`)
+```
+
+### Entity Recycling
+
+When an entity is deleted, its index is recycled but the generation increments:
+
+```lua
+world:delete(entity)
+
+local recycled_entity = world:entity()
+
+print(`This is a huge number: {recycled_entity}`)
+print(`Generation incremented to {ECS_GENERATION(recycled_entity)}`)
+print(`Retains the old index at {ECS_ID(recycled_entity)}`)
+```
+
+This prevents stale entity references from accidentally accessing the wrong entity.
+
+## Entity Records
+
+Every entity has a corresponding record that keeps indices into arrays of data:
+
+```lua
+local record = jecs.record(world, entity)
+print(record)
+```
+
+The record format:
+
+```lua
+record: {
+    row: number,
+}
+```
+
+Under the hood, the ECS uses a dense array and sparse array to manage entities efficiently, but this is an implementation detail you typically don't need to worry about.
+
+## Next Steps
+
+Now that you understand the basics, explore more advanced topics:
+
+- Learn about querying entities with specific components
+- Discover entity relationships and how to build complex game logic
+- Explore the example projects in the [GitHub repository](https://github.com/Ukendio/jecs)
+- Check out the modules folder for ready-to-use helpers
+
+<Info>
+  For a deeper understanding of ECS design patterns, check out the `how_to` folder in the jecs repository for step-by-step tutorials.
+</Info>

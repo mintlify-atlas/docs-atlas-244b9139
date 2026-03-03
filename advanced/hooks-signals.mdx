@@ -1,0 +1,278 @@
+---
+title: Hooks & Signals
+description: React to component lifecycle events with OnAdd, OnChange, OnRemove hooks and multi-listener signals in jecs
+---
+
+Hooks and signals let you run code when components are added, changed, or removed. Use **hooks** when you need a single, definitive lifecycle handler per component. Use **signals** when you need multiple independent systems to react to the same events.
+
+## Hooks
+
+Hooks are component traits that enforce invariants and run side effects during component mutations. You can configure **one** `OnAdd`, `OnRemove`, and `OnChange` hook per component (like a constructor/destructor).
+
+### OnAdd Hook
+
+Runs when a component is added to an entity:
+
+```lua
+local jecs = require("@jecs")
+local world = jecs.world()
+
+local Transform = world:component()
+
+world:set(Transform, jecs.OnAdd, function(entity, id, data)
+    print(`Transform added to entity {entity}`)
+end)
+```
+
+**Parameters:**
+- `entity`: The entity that received the component
+- `id`: The component ID
+- `data`: The component data (if any)
+
+### OnChange Hook
+
+Runs when a component's data is modified:
+
+```lua
+world:set(Transform, jecs.OnChange, function(entity, id, data)
+    print(`Transform changed on entity {entity}`)
+end)
+```
+
+<Info>
+`OnChange` is triggered by `world:set()` when the component already exists on the entity.
+</Info>
+
+### OnRemove Hook
+
+Runs when a component is removed from an entity:
+
+```lua
+world:set(Transform, jecs.OnRemove, function(entity, id, delete)
+    print(`Transform removed from entity {entity}`)
+end)
+```
+
+**Parameters:**
+- `entity`: The entity losing the component
+- `id`: The component ID
+- `delete`: `true` if the entity is being deleted, `false`/`nil` if just the component is being removed
+
+## The `delete` Flag
+
+The `delete` parameter in `OnRemove` distinguishes between two scenarios:
+
+1. **Component removal** (`delete = false`): A single component is removed
+2. **Entity deletion** (`delete = true`): The entire entity is being destroyed
+
+### Why It Matters
+
+When an entity is deleted, **all** its components are removed. Each removal triggers `OnRemove`. If you try to make structural changes during deletion (like removing related components), you're fighting against the deletion process.
+
+<Warning>
+During entity deletion (`delete = true`), avoid calling `world:add()`, `world:remove()`, or `world:set()` on the entity being deleted.
+</Warning>
+
+### Proper `delete` Handling
+
+Check the `delete` flag and bail early during deletion:
+
+```lua
+local Health = world:component()
+local Dead = world:component()
+
+world:set(Health, jecs.OnRemove, function(entity, id, delete)
+    if delete then
+        -- Entity is being deleted, don't try to clean up
+        return
+    end
+    
+    -- Normal component removal, do cleanup
+    world:remove(entity, Dead)
+end)
+```
+
+### DEBUG Mode
+
+Create a world with `DEBUG` enabled to catch structural changes during deletion:
+
+```lua
+local world = jecs.world(true)  -- DEBUG enabled
+```
+
+With DEBUG mode:
+- Throws an error if you call `world:add()`, `world:remove()`, or `world:set()` inside `OnRemove` when `delete = true`
+- Still allows these calls when `delete = false`
+- Helps catch bugs during development
+
+## Deletion Order
+
+When entities form a hierarchy, children are cleaned up **before** parents:
+
+```lua
+local ChildOf = jecs.ChildOf
+local parent = world:entity()
+local child = world:entity()
+
+world:add(child, pair(ChildOf, parent))
+
+-- When parent is deleted:
+-- 1. child's OnRemove hooks fire first
+-- 2. parent's OnRemove hooks fire second
+world:delete(parent)
+```
+
+<Note>
+This order applies to any relationship with the `(OnDeleteTarget, Delete)` trait. See [Cleanup Traits](/advanced/cleanup-traits) for details.
+</Note>
+
+<Warning>
+If your entity graph contains cycles, deletion order is undefined.
+</Warning>
+
+## Signals
+
+Signals support **multiple listeners** per component lifecycle event. Each subscription returns an unsubscribe function for cleanup.
+
+### When to Use Signals
+
+- Multiple independent systems need to react to the same events
+- You need to subscribe/unsubscribe dynamically (e.g., UI that only listens while mounted)
+- You want decoupled event handling
+
+### Added Signal
+
+Subscribe to component additions:
+
+```lua
+local Position = world:component() :: jecs.Id<{ x: number, y: number }>
+
+local unsub = world:added(Position, function(entity, id, value, oldarchetype)
+    print(`Position added to entity {entity}: ({value.x}, {value.y})`)
+end)
+
+-- Later, unsubscribe
+unsub()
+```
+
+### Changed Signal
+
+Subscribe to component changes:
+
+```lua
+local unsub = world:changed(Position, function(entity, id, value, oldarchetype)
+    print(`Position changed on entity {entity}: ({value.x}, {value.y})`)
+end)
+```
+
+### Removed Signal
+
+Subscribe to component removals:
+
+```lua
+local unsub = world:removed(Position, function(entity, id, delete)
+    if delete then
+        print(`Entity {entity} deleted (had Position)`)
+    else
+        print(`Position removed from entity {entity}`)
+    end
+end)
+```
+
+<Info>
+The `delete` parameter works the same as in hooks: `true` for entity deletion, `false`/`nil` for component removal.
+</Info>
+
+### Multiple Listeners
+
+Unlike hooks, signals support any number of subscribers:
+
+```lua
+local e = world:entity()
+
+-- First listener
+world:added(Position, function(entity)
+    print("Listener 1: Position added")
+end)
+
+-- Second listener
+world:added(Position, function(entity)
+    print("Listener 2: Position added")
+end)
+
+-- Both listeners fire
+world:set(e, Position, { x = 10, y = 20 })
+```
+
+### Unsubscribing
+
+Call the returned function to stop listening:
+
+```lua
+local unsub_added = world:added(Position, function(entity, id, value)
+    print("Position added")
+end)
+
+local unsub_changed = world:changed(Position, function(entity, id, value)
+    print("Position changed")
+end)
+
+local e = world:entity()
+world:set(e, Position, { x = 10, y = 20 })  -- Listeners fire
+
+-- Unsubscribe
+unsub_added()
+unsub_changed()
+
+world:set(e, Position, { x = 30, y = 40 })  -- Listeners don't fire
+```
+
+## Hooks vs Signals
+
+| Feature | Hooks | Signals |
+|---------|-------|----------|
+| Listeners per component | One | Unlimited |
+| Use case | Enforce component invariants | Multi-system event handling |
+| Unsubscribe | N/A (permanent) | Yes (returns function) |
+| Performance | Slightly faster | Minimal overhead |
+
+## Complete Example
+
+```lua
+local jecs = require("@jecs")
+local world = jecs.world()
+local Position = world:component() :: jecs.Id<{ x: number, y: number }>
+
+-- Hook: enforce that position is always valid
+world:set(Position, jecs.OnAdd, function(entity, id, data)
+    assert(data.x and data.y, "Position must have x and y")
+end)
+
+-- Signal: log position changes for debugging
+local unsub_log = world:changed(Position, function(entity, id, value)
+    print(`[DEBUG] Entity {entity} moved to ({value.x}, {value.y})`)
+end)
+
+-- Signal: update spatial index
+local unsub_spatial = world:changed(Position, function(entity, id, value)
+    -- Update your spatial partitioning structure
+end)
+
+local entity = world:entity()
+world:set(entity, Position, { x = 10, y = 20 })  -- Hook validates, both signals fire
+world:set(entity, Position, { x = 30, y = 40 })  -- Both signals fire
+
+-- Later, stop logging but keep spatial index
+unsub_log()
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Cleanup Traits" icon="trash" href="/advanced/cleanup-traits">
+    Control what happens when entities are deleted
+  </Card>
+  <Card title="Query Caching" icon="gauge-high" href="/advanced/query-caching">
+    Optimize repeated queries with caching
+  </Card>
+</CardGroup>

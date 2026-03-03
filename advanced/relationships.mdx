@@ -1,0 +1,149 @@
+---
+title: Entity Relationships
+description: Learn how to describe entity graphs using relationships, ChildOf, and parent/children traversal in jecs
+---
+
+Relationships make it possible to describe entity graphs natively in ECS. They enable you to model hierarchies, inventory systems, social connections, and any other graph-based data structures.
+
+## What are Relationships?
+
+A relationship adds a **pair** of two things to an entity:
+- **Relationship** (first element): The type of connection (e.g., "Eats", "Likes", "ChildOf")
+- **Target** (second element): What the relationship points to (e.g., "Apples", "Alice", a parent entity)
+
+<Info>
+Relationships use the same `pair()` function as regular pairs. See [Pairs & Wildcards](/advanced/pairs-wildcards) for details on pair encoding.
+</Info>
+
+## Creating Relationships
+
+Use `jecs.pair()` to create a relationship pair, then add it to an entity:
+
+```lua
+local jecs = require("@jecs")
+local pair = jecs.pair
+local world = jecs.world()
+
+local Eats = world:component()
+local Likes = world:component()
+local Apples = world:entity()
+local alice = world:entity()
+local bob = world:entity()
+
+-- Add relationships
+world:add(bob, pair(Eats, Apples))
+world:add(bob, pair(Likes, alice))
+world:add(alice, pair(Likes, bob))
+
+-- Test if entity has a relationship
+print(world:has(bob, pair(Eats, Apples)))  -- true
+```
+
+## Querying Relationships
+
+Find all entities that have a specific relationship with a specific target:
+
+```lua
+-- Find all entities that eat apples
+for entity in world:query(pair(Eats, Apples)) do
+    print(`Entity {entity} eats apples`)
+end
+
+-- Find all entities that like alice
+for entity in world:query(pair(Likes, alice)) do
+    print(`Entity {entity} likes alice`)
+end
+```
+
+## Parent-Child Hierarchies
+
+The built-in `jecs.ChildOf` relationship is the standard way to create hierarchies:
+
+```lua
+local ChildOf = jecs.ChildOf
+local parent = world:entity()
+local child1 = world:entity()
+local child2 = world:entity()
+
+world:add(child1, pair(ChildOf, parent))
+world:add(child2, pair(ChildOf, parent))
+
+-- Find all children of a parent
+for child in world:query(pair(ChildOf, parent)) do
+    print(`Entity {child} is a child of parent {parent}`)
+end
+```
+
+<Warning>
+When a parent is deleted, all children with `ChildOf` are automatically deleted too. See [Cleanup Traits](/advanced/cleanup-traits) for details.
+</Warning>
+
+## Combining with Components
+
+Relationship queries can be combined with regular component queries:
+
+```lua
+local Position = world:component()
+local Health = world:component()
+
+local player = world:entity()
+world:set(player, Position, Vector3.new(10, 20, 30))
+world:set(player, Health, 100)
+world:add(player, pair(ChildOf, parent))
+
+-- Find all children that have Position and Health
+for entity, pos, health in world:query(Position, Health, pair(ChildOf, parent)) do
+    print(`Child {entity} has position {pos} and health {health}`)
+end
+```
+
+## Relationship Data
+
+Just like components, relationship pairs can store data:
+
+```lua
+local Eats = world:component() :: jecs.Id<{ amount: number }>
+local Apples = world:entity()
+local entity = world:entity()
+
+-- Set relationship with data
+world:set(entity, pair(Eats, Apples), { amount = 5 })
+
+-- Query and access the data
+for e, eats_data in world:query(pair(Eats, Apples)) do
+    print(`Entity {e} eats {eats_data.amount} apples`)
+end
+```
+
+## Multiple Targets per Relationship
+
+You can store complex graph data using pairs as targets:
+
+```lua
+local Position = world:component()
+local Begin = world:entity()
+local End = world:entity()
+
+local entity = world:entity()
+world:set(entity, pair(Begin, Position), Vector3.new(0, 0, 0))
+world:set(entity, pair(End, Position), Vector3.new(10, 20, 30))
+```
+
+## Key Definitions
+
+- **Id**: An id that can be added and removed
+- **Component**: Id with a single element (same as an entity id)
+- **Relationship**: The first element of a pair
+- **Target**: The second element of a pair
+- **Source**: Entity to which an id is added
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Pairs & Wildcards" icon="asterisk" href="/advanced/pairs-wildcards">
+    Query relationships with wildcards and extract targets
+  </Card>
+  <Card title="Cleanup Traits" icon="trash" href="/advanced/cleanup-traits">
+    Control what happens when entities or targets are deleted
+  </Card>
+</CardGroup>

@@ -1,0 +1,221 @@
+---
+title: Pairs & Wildcards
+description: Master pair syntax, wildcard queries, and target extraction for flexible relationship queries in jecs
+---
+
+Pairs are the foundation of relationships in jecs. They encode two entity IDs into a single 53-bit ID, allowing the ECS to treat pairs the same way as regular component IDs at the storage level.
+
+## Understanding Pairs
+
+A **pair** encodes two entities:
+1. **First element**: The relationship/predicate (e.g., "Likes", "Owns")
+2. **Second element**: The target/object (e.g., "alice", "car")
+
+<Info>
+Pairs use an offset (`ECS_PAIR_OFFSET = 2^48`) in the 53-bit ID space. This makes pairs larger than any regular entity ID, allowing quick differentiation.
+</Info>
+
+## Creating Pairs
+
+Use `jecs.pair()` to create a pair:
+
+```lua
+local jecs = require("@jecs")
+local pair = jecs.pair
+local world = jecs.world()
+
+local Likes = world:entity()
+local Owns = world:component()
+local alice = world:entity()
+local car = world:entity()
+
+local likes_alice_pair = pair(Likes, alice)
+local owns_car_pair = pair(Owns, car)
+```
+
+## Using Pairs
+
+Pairs can be used just like component IDs:
+
+```lua
+local entity = world:entity()
+
+-- Add a pair without data
+world:add(entity, pair(Likes, alice))
+
+-- Check if entity has a pair
+print(world:has(entity, pair(Likes, alice)))  -- true
+
+-- Set a pair with data
+local Owns = world:component() :: jecs.Id<{ purchase_date: string }>
+world:set(entity, pair(Owns, car), { purchase_date = "2024-01-01" })
+
+-- Get pair data
+local ownership = world:get(entity, pair(Owns, car))
+print(ownership.purchase_date)  -- "2024-01-01"
+```
+
+## Inspecting Pairs
+
+### Check if an ID is a Pair
+
+```lua
+local regular_id = world:entity()
+local pair_id = pair(Likes, alice)
+
+print(jecs.IS_PAIR(regular_id))  -- false
+print(jecs.IS_PAIR(pair_id))     -- true
+```
+
+### Extract Pair Elements
+
+```lua
+local p = pair(Likes, alice)
+local first = jecs.pair_first(world, p)
+local second = jecs.pair_second(world, p)
+
+print(`Pair ({first}, {second})`)
+```
+
+<Note>
+For extracting targets from wildcard queries, use `world:target()` instead. It handles alive entity resolution properly.
+</Note>
+
+## Wildcards
+
+Wildcards let you query relationships **without specifying the exact target or relationship**. Use `jecs.Wildcard` to match any entity in that slot.
+
+### Wildcard Patterns
+
+- `pair(relation, jecs.Wildcard)`: Match this relationship with **any target**
+- `pair(jecs.Wildcard, target)`: Match **any relationship** with this target
+
+### Query with Wildcards
+
+```lua
+local Eats = world:component()
+local Likes = world:entity()
+local Apples = world:entity()
+local alice = world:entity()
+local bob = world:entity()
+
+world:add(bob, pair(Eats, Apples))
+world:add(bob, pair(Likes, alice))
+
+-- Check if bob has any Eats relationship
+print(world:has(bob, pair(Eats, jecs.Wildcard)))  -- true
+
+-- Find all entities that eat something
+for entity in world:query(pair(Eats, jecs.Wildcard)) do
+    local food = world:target(entity, Eats)
+    print(`Entity {entity} eats {food}`)
+end
+
+-- Find all entities that like someone
+for entity in world:query(pair(Likes, jecs.Wildcard)) do
+    local target = world:target(entity, Likes)
+    print(`Entity {entity} likes {target}`)
+end
+```
+
+## Extracting Targets with `world:target()`
+
+When using wildcard queries, `world:target()` extracts the actual target entity.
+
+### Syntax
+
+```lua
+world:target(entity, relation, index?)
+```
+
+- **entity**: The entity to inspect
+- **relation**: The relationship to look for
+- **index**: 0-based index for multiple targets (default: 0)
+- **Returns**: The target entity, or `nil` if none exists
+
+### Single Target
+
+```lua
+local Eats = world:entity()
+local Apples = world:entity()
+local bob = world:entity()
+
+world:add(bob, pair(Eats, Apples))
+
+-- Get the first (and only) target
+local first = world:target(bob, Eats, 0)
+print(first == Apples)  -- true
+
+-- Omitting index defaults to 0
+local default = world:target(bob, Eats)
+print(default == Apples)  -- true
+```
+
+### Multiple Targets
+
+An entity can have the same relationship with multiple targets:
+
+```lua
+local Likes = world:entity()
+local alice = world:entity()
+local charlie = world:entity()
+local bob = world:entity()
+
+world:add(bob, pair(Likes, alice))
+world:add(bob, pair(Likes, charlie))
+
+-- Iterate through all targets (0-based indexing)
+for entity in world:query(pair(Likes, jecs.Wildcard)) do
+    local nth = 0
+    local target = world:target(entity, Likes, nth)
+    while target do
+        print(`Entity {entity} likes {target}`)
+        nth += 1
+        target = world:target(entity, Likes, nth)
+    end
+end
+```
+
+<Warning>
+Target indices are **0-based**. The first target is at index 0, the second at index 1, and so on.
+</Warning>
+
+## Reverse Wildcard Queries
+
+Find all relationships that point **to** a specific entity:
+
+```lua
+-- Find all entities that have ANY relationship with alice
+for entity in world:query(pair(jecs.Wildcard, alice)) do
+    print(`Entity {entity} has some relationship with alice`)
+end
+```
+
+## Pairs with Component Targets
+
+Pairs can use components as targets (though this is less common):
+
+```lua
+local Position = world:component()
+local Begin = world:entity()
+local End = world:entity()
+
+local entity = world:entity()
+world:set(entity, pair(Begin, Position), Vector3.new(0, 0, 0))
+world:set(entity, pair(End, Position), Vector3.new(10, 20, 30))
+```
+
+<Tip>
+Typically use pairs for entity-to-entity relationships, and regular components for entity-to-data relationships.
+</Tip>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Relationships" icon="diagram-project" href="/advanced/relationships">
+    Learn about entity relationships and hierarchies
+  </Card>
+  <Card title="Cleanup Traits" icon="trash" href="/advanced/cleanup-traits">
+    Control cleanup behavior when entities are deleted
+  </Card>
+</CardGroup>

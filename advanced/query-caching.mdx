@@ -1,0 +1,230 @@
+---
+title: Query Caching
+description: Optimize query performance with cached queries and understand when to use them in jecs
+---
+
+Query caching is one of the most impactful performance optimizations in jecs. Understanding when and how to use cached queries can dramatically improve your game's performance.
+
+## What is Query Caching?
+
+Jecs is an **archetype ECS**: entities with the same components are grouped together in an "archetype". When you create or modify entities, archetypes are created on the fly.
+
+### Archetypes in Action
+
+```lua
+local jecs = require("@jecs")
+local world = jecs.world()
+
+local Position = world:component() :: jecs.Id<Vector3>
+local Velocity = world:component() :: jecs.Id<Vector3>
+local Mass = world:component() :: jecs.Id<number>
+
+local e1 = world:entity()
+world:set(e1, Position, Vector3.new(10, 20, 30))  -- Create archetype [Position]
+world:set(e1, Velocity, Vector3.new(1, 2, 3))     -- Create archetype [Position, Velocity]
+
+local e2 = world:entity()
+world:set(e2, Position, Vector3.new(10, 20, 30))  -- [Position] already exists
+world:set(e2, Velocity, Vector3.new(1, 2, 3))     -- [Position, Velocity] already exists
+world:set(e2, Mass, 100)                          -- Create archetype [Position, Velocity, Mass]
+```
+
+Now:
+- `e1` is in archetype `[Position, Velocity]`
+- `e2` is in archetype `[Position, Velocity, Mass]`
+
+## How Caching Works
+
+### Without Caching (Uncached Query)
+
+Every time you run an uncached query, it:
+1. Searches through all archetypes
+2. Checks which archetypes match your component requirements
+3. Iterates over matching entities
+
+### With Caching (Cached Query)
+
+A cached query:
+1. **First time**: Searches archetypes and builds a cache of matching archetypes
+2. **Subsequent times**: Directly iterates the cached archetype list (no search needed)
+
+<Info>
+Even as entities move in and out of archetypes, the archetypes themselves remain stable. This makes caching extremely effective.
+</Info>
+
+## Performance Benefits
+
+Cached queries don't have to **search**—they just iterate a pre-matched list. This is:
+- **Much faster** for repeated queries (e.g., every frame in a system)
+- **Minimal overhead** once the cache is built
+
+<Tip>
+If a query runs every frame, use `.cached()`. The performance gain is substantial.
+</Tip>
+
+## Uncached vs Cached Queries
+
+### Uncached Query (Default)
+
+```lua
+-- Searches archetypes every time
+for entity, pos, vel in world:query(Position, Velocity) do
+    -- Process entities
+end
+```
+
+**Use when:**
+- Query is run once or infrequently
+- Query is ad-hoc (conditions only known at runtime)
+- You're prototyping and don't know query frequency yet
+
+### Cached Query
+
+```lua
+-- Build cache once, reuse many times
+local cached_query = world:query(Position, Velocity):cached()
+
+for entity, pos, vel in cached_query do
+    -- Process entities (faster on subsequent iterations)
+end
+```
+
+**Use when:**
+- Query runs every frame (systems)
+- Query is long-lived and reused
+- Performance matters more than setup time
+
+## Tradeoffs
+
+| Aspect | Uncached | Cached |
+|--------|----------|--------|
+| **Iteration speed** | Slower | **Much faster** |
+| **Creation time** | Instant | Slower (builds cache) |
+| **Archetype creation overhead** | None | Small (cache update) |
+| **Memory** | Minimal | Small cache overhead |
+| **Best for** | Ad-hoc, one-off queries | Repeated, per-frame queries |
+
+### When to Avoid Caching
+
+1. **Ad-hoc queries**: Queries with runtime-specific conditions
+   ```lua
+   -- Finding children of a specific parent (parent varies at runtime)
+   for child in world:query(pair(ChildOf, specific_parent)) do
+       -- ...
+   end
+   ```
+
+2. **One-time queries**: Queries that run once or rarely
+   ```lua
+   -- Find all enemies to display in a debug menu (runs when menu opens)
+   for entity in world:query(Enemy) do
+       print(entity)
+   end
+   ```
+
+3. **Prototype/exploration**: When you're still figuring out your systems
+
+### When to Use Caching
+
+1. **Systems that run every frame**:
+   ```lua
+   local physics_query = world:query(Position, Velocity, Mass):cached()
+   
+   function update_physics(dt)
+       for entity, pos, vel, mass in physics_query do
+           -- Update physics every frame
+       end
+   end
+   ```
+
+2. **Frequently reused queries**:
+   ```lua
+   local renderable_query = world:query(Position, Sprite):cached()
+   
+   function render()
+       for entity, pos, sprite in renderable_query do
+           -- Render every frame
+       end
+   end
+   ```
+
+## Complete Example
+
+```lua
+local jecs = require("@jecs")
+local world = jecs.world()
+
+local Position = world:component() :: jecs.Id<Vector3>
+local Velocity = world:component() :: jecs.Id<Vector3>
+local Health = world:component() :: jecs.Id<number>
+local Enemy = world:component()
+
+-- System that runs every frame: use cached query
+local movement_query = world:query(Position, Velocity):cached()
+
+function update_movement(dt)
+    for entity, pos, vel in movement_query do
+        local new_pos = pos + vel * dt
+        world:set(entity, Position, new_pos)
+    end
+end
+
+-- Ad-hoc query to find low-health enemies: don't cache
+function find_wounded_enemies()
+    local wounded = {}
+    for entity, health in world:query(Health, Enemy) do
+        if health < 30 then
+            table.insert(wounded, entity)
+        end
+    end
+    return wounded
+end
+
+-- Game loop
+while true do
+    local dt = wait()
+    update_movement(dt)  -- Cached query: very fast
+    
+    -- Only check occasionally
+    if game_time % 5 == 0 then
+        local wounded = find_wounded_enemies()  -- Uncached: fine for infrequent use
+    end
+end
+```
+
+## Rule of Thumb
+
+<Check>
+**Frame-rate systems → Use `.cached()`**
+
+If your query runs every frame (or even multiple times per frame), caching provides a massive performance boost.
+</Check>
+
+<Check>
+**One-off or runtime-specific queries → Don't cache**
+
+If your query runs occasionally or has conditions only known at runtime, uncached queries are simpler and fine.
+</Check>
+
+## Cache Invalidation
+
+Caches automatically update when:
+- New archetypes are created
+- Archetypes are deleted
+
+You don't need to manually invalidate or rebuild caches.
+
+<Warning>
+While cache updates are cheap, creating many archetypes rapidly (e.g., extensive use of relationships) can add overhead. Consider your archetype creation patterns when optimizing.
+</Warning>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Relationships" icon="diagram-project" href="/advanced/relationships">
+    Learn about entity relationships and hierarchies
+  </Card>
+  <Card title="Hooks & Signals" icon="bell" href="/advanced/hooks-signals">
+    React to component lifecycle events
+  </Card>
+</CardGroup>

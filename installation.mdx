@@ -1,0 +1,116 @@
+---
+title: Installation
+description: Install jecs using npm, yarn, pnpm, or Wally for Roblox projects
+---
+
+# Installation
+
+jecs is available through multiple package managers, making it easy to integrate into your Luau or Roblox TypeScript project.
+
+## Package Managers
+
+<Tabs>
+  <Tab title="npm">
+    Install jecs using npm:
+
+    ```bash
+    npm install @rbxts/jecs
+    ```
+
+    <Note>
+      This package is published as `@rbxts/jecs` version `0.10.3` and includes TypeScript definitions.
+    </Note>
+  </Tab>
+
+  <Tab title="yarn">
+    Install jecs using yarn:
+
+    ```bash
+    yarn add @rbxts/jecs
+    ```
+  </Tab>
+
+  <Tab title="pnpm">
+    Install jecs using pnpm:
+
+    ```bash
+    pnpm add @rbxts/jecs
+    ```
+  </Tab>
+
+  <Tab title="Wally">
+    For Roblox projects using Wally, add jecs to your `wally.toml`:
+
+    ```toml wally.toml
+    [dependencies]
+    jecs = "ukendio/jecs@0.10.3"
+    ```
+
+    Then install dependencies:
+
+    ```bash
+    wally install
+    ```
+
+    <Info>
+      The Wally package is published under `ukendio/jecs` and is available in the shared realm, making it compatible with both client and server scripts.
+    </Info>
+  </Tab>
+</Tabs>
+
+## Roblox Studio
+
+If you prefer to work directly in Roblox Studio without a package manager, you can download a pre-built model file:
+
+<Steps>
+  <Step title="Download the model">
+    Download the latest model file from [GitHub Actions](https://nightly.link/Ukendio/jecs/workflows/build-studio-docs.yaml/main/studio_docs.zip).
+  </Step>
+
+  <Step title="Extract the archive">
+    Extract the downloaded ZIP file to access the `.rbxm` model file.
+  </Step>
+
+  <Step title="Import into Studio">
+    In Roblox Studio, right-click on `ReplicatedStorage` (or your preferred location) and select "Insert from File", then choose the extracted model file.
+  </Step>
+</Steps>
+
+## Verify Installation
+
+Once installed, verify that jecs is working correctly:
+
+<CodeGroup>
+```lua Luau
+local jecs = require(path.to.jecs)
+local world = jecs.world()
+
+print("jecs installed successfully!")
+print(`World created: {world}`)
+```
+
+```typescript TypeScript
+import { World } from "@rbxts/jecs";
+
+const world = World();
+
+print("jecs installed successfully!");
+print(`World created: ${world}`);
+```
+</CodeGroup>
+
+## Package Information
+
+- **Current Version**: 0.10.3
+- **License**: MIT
+- **Repository**: [github.com/Ukendio/jecs](https://github.com/Ukendio/jecs)
+- **Author**: Ukendio
+- **Contributors**: Ukendio, EncodedVenom
+
+## Next Steps
+
+Now that you have jecs installed, head over to the [Quickstart](/quickstart) guide to learn how to create your first ECS world and start building with entities and components.
+
+<Note>
+  jecs has zero dependencies, so the installation is lightweight and won't bloat your project.
+</Note>

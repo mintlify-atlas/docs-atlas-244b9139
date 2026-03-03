@@ -1,0 +1,334 @@
+---
+title: 'Query API'
+description: 'API reference for Query and CachedQuery'
+---
+
+Queries allow you to search and iterate over entities that match specific component criteria. jecs provides two query types: `Query` for one-time use and `CachedQuery` for repeated iterations.
+
+## Query
+
+A query object is created by calling `world.query()` and can be refined with filters before iteration.
+
+### Creating a Query
+
+```lua
+local query = world:query(Position, Velocity)
+```
+
+```typescript
+const query = world.query(Position, Velocity)
+```
+
+## Query Methods
+
+### iter()
+
+Returns an iterator function that produces tuples of `[Entity, ...components]`.
+
+**Returns:** `IterableFunction<[Entity, ...T]>`
+
+```lua
+for entity, position, velocity in world:query(Position, Velocity):iter() do
+    position.x = position.x + velocity.x
+    position.y = position.y + velocity.y
+end
+```
+
+```typescript
+for (const [entity, position, velocity] of world.query(Position, Velocity).iter()) {
+    position.x += velocity.x
+    position.y += velocity.y
+}
+```
+
+### with()
+
+Modifies the query to include entities that have additional components. The components are not returned in the iterator, but entities must have them to match.
+
+<ParamField path="components" type="Id[]" required>
+  Additional components that entities must have
+</ParamField>
+
+**Returns:** `Query<T>` - A new refined query
+
+```lua
+-- Query entities with Position and Velocity that also have Health
+for entity, pos, vel in world:query(Position, Velocity):with(Health) do
+    -- Only entities with all three components
+end
+```
+
+```typescript
+// Query entities with Position and Velocity that also have Health
+for (const [entity, pos, vel] of world.query(Position, Velocity).with(Health)) {
+    // Only entities with all three components
+}
+```
+
+### without()
+
+Modifies the query to exclude entities that have specific components.
+
+<ParamField path="components" type="Id[]" required>
+  Components that entities must NOT have
+</ParamField>
+
+**Returns:** `Query<T>` - A new refined query
+
+```lua
+-- Query entities with Position but without Velocity
+for entity, position in world:query(Position):without(Velocity) do
+    -- Static entities only
+end
+```
+
+```typescript
+// Query entities with Position but without Velocity  
+for (const [entity, position] of world.query(Position).without(Velocity)) {
+    // Static entities only
+}
+```
+
+### has()
+
+Checks if a specific entity matches the query criteria.
+
+<ParamField path="entity" type="Entity" required>
+  The entity to check
+</ParamField>
+
+**Returns:** `boolean`
+
+```lua
+local query = world:query(Position, Velocity)
+if query:has(player) then
+    print("Player matches query")
+end
+```
+
+```typescript
+const query = world.query(Position, Velocity)
+if (query.has(player)) {
+    console.log("Player matches query")
+}
+```
+
+### archetypes()
+
+Returns all archetypes that match the query criteria.
+
+**Returns:** `Archetype<T>[]`
+
+```lua
+local archetypes = world:query(Position):archetypes()
+for _, archetype in archetypes do
+    print("Archetype ID:", archetype.id)
+    print("Entity count:", #archetype.entities)
+end
+```
+
+```typescript
+const archetypes = world.query(Position).archetypes()
+for (const archetype of archetypes) {
+    console.log("Archetype ID:", archetype.id)
+    console.log("Entity count:", archetype.entities.length)
+}
+```
+
+### cached()
+
+Converts a query to a cached query for efficient repeated iterations. Cache the query AFTER applying all filters.
+
+**Returns:** `CachedQuery<T>`
+
+```lua
+local cachedQuery = world:query(Position, Velocity):with(Health):cached()
+
+-- Use the cached query multiple times efficiently
+for entity, pos, vel in cachedQuery do
+    -- Iteration 1
+end
+
+for entity, pos, vel in cachedQuery do
+    -- Iteration 2 - uses cached archetypes
+end
+```
+
+```typescript
+const cachedQuery = world.query(Position, Velocity).with(Health).cached()
+
+// Use the cached query multiple times efficiently
+for (const [entity, pos, vel] of cachedQuery) {
+    // Iteration 1
+}
+
+for (const [entity, pos, vel] of cachedQuery) {
+    // Iteration 2 - uses cached archetypes
+}
+```
+
+## CachedQuery
+
+A cached query stores the list of matching archetypes and automatically updates when archetypes are created or destroyed. This makes repeated iterations much faster.
+
+### Creating a Cached Query
+
+```lua
+local query = world:query(Position, Velocity):cached()
+```
+
+```typescript
+const query = world.query(Position, Velocity).cached()
+```
+
+## CachedQuery Methods
+
+### iter()
+
+Returns an iterator function. CachedQuery can be used directly in loops without calling `iter()`.
+
+**Returns:** `IterableFunction<[Entity, ...T]>`
+
+```lua
+-- Both are equivalent
+for entity, pos, vel in cachedQuery:iter() do end
+for entity, pos, vel in cachedQuery do end
+```
+
+```typescript
+// iter() is called automatically in for-of loops
+for (const [entity, pos, vel] of cachedQuery) {
+    // Process entities
+}
+```
+
+### archetypes()
+
+Returns the cached list of matching archetypes.
+
+<ParamField path="override" type="boolean" optional default="false">
+  Force refresh the archetype cache
+</ParamField>
+
+**Returns:** `Archetype<T>[]`
+
+```lua
+local archetypes = cachedQuery:archetypes()
+local refreshed = cachedQuery:archetypes(true) -- Force refresh
+```
+
+```typescript
+const archetypes = cachedQuery.archetypes()
+const refreshed = cachedQuery.archetypes(true) // Force refresh
+```
+
+### has()
+
+Checks if an entity matches the cached query criteria.
+
+<ParamField path="entity" type="Entity" required>
+  The entity to check
+</ParamField>
+
+**Returns:** `boolean`
+
+```lua
+if cachedQuery:has(entity) then
+    print("Entity matches")
+end
+```
+
+```typescript
+if (cachedQuery.has(entity)) {
+    console.log("Entity matches")
+}
+```
+
+### fini()
+
+Cleans up the cached query by removing internal observers and freeing memory. Call this when you're done with a cached query to prevent memory leaks.
+
+```lua
+local query = world:query(Position):cached()
+
+-- Use the query...
+
+query:fini() -- Clean up when done
+```
+
+```typescript
+const query = world.query(Position).cached()
+
+// Use the query...
+
+query.fini() // Clean up when done
+```
+
+## Query Patterns
+
+### Basic Iteration
+
+```lua
+-- Iterate over all entities with Position and Velocity
+for entity, position, velocity in world:query(Position, Velocity) do
+    position.x = position.x + velocity.x
+    position.y = position.y + velocity.y
+end
+```
+
+### Filtered Query
+
+```lua
+-- Find entities with Position and Health but not Dead
+for entity, pos, health in world:query(Position, Health):without(Dead) do
+    if health.value > 0 then
+        -- Process living entities
+    end
+end
+```
+
+### Cached Query for Systems
+
+```lua
+local movementQuery = world:query(Position, Velocity):cached()
+
+local function updateMovement(dt)
+    for entity, position, velocity in movementQuery do
+        position.x = position.x + velocity.x * dt
+        position.y = position.y + velocity.y * dt
+    end
+end
+
+-- Call updateMovement repeatedly - cached query is efficient
+```
+
+### Complex Filtering
+
+```lua
+-- Entities with Position, Velocity, and Health, but not Dead or Frozen
+local query = world:query(Position, Velocity, Health)
+    :without(Dead, Frozen)
+    :cached()
+
+for entity, pos, vel, health in query do
+    -- Process active entities
+end
+```
+
+## Performance Tips
+
+<Card title="Use Cached Queries for Repeated Iterations" icon="bolt">
+  If you iterate the same query multiple times (e.g., in a game loop), use `cached()` for better performance.
+</Card>
+
+<Card title="Apply Filters Before Caching" icon="filter">
+  Always call `with()` and `without()` before `cached()` to ensure the cache includes your filters.
+</Card>
+
+<Card title="Clean Up Cached Queries" icon="trash">
+  Call `fini()` on cached queries when you're done with them to free memory and remove observers.
+</Card>
+
+<Card title="Limit Query Components" icon="list">
+  Only query for components you actually need in the iteration. Use `with()` for required components you don't need to read.
+</Card>

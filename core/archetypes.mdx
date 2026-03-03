@@ -1,0 +1,217 @@
+---
+title: Archetypes
+description: Learn about archetype storage, Structure of Arrays layout, and performance benefits in jecs
+---
+
+Archetypes are the fundamental storage unit in an archetypal ECS. An archetype represents a **unique combination of components**. All entities with exactly the same set of components belong to the same archetype.
+
+## What is an Archetype?
+
+When you create an entity, it starts with no components. All entities with no components belong to the **ROOT_ARCHETYPE**. When you add components, the entity moves to a different archetype.
+
+```lua
+local world = jecs.world()
+local Position = world:component() :: jecs.Id<vector>
+
+-- Entity starts in ROOT_ARCHETYPE (no components)
+local e1 = world:entity()
+
+-- Entity moves to [Position] archetype
+world:set(e1, Position, vector.create(10, 20, 30))
+```
+
+Each unique component combination creates a new archetype:
+
+- `[]` - ROOT_ARCHETYPE (no components)
+- `[Position]` - Entities with only Position
+- `[Position, Velocity]` - Entities with Position and Velocity
+- `[Position, Velocity, Health]` - Entities with Position, Velocity, and Health
+
+## Archetype Transitions
+
+When you add or remove a component, the entity moves to a different archetype. This transition involves several operations:
+
+1. **Remove** the entity from the old archetype's entity list
+2. **Copy** component data from old columns to new columns (if the component exists in both)
+3. **Add** the entity to the new archetype's entity list
+4. **Update** the entity's record to point to the new archetype
+5. **Update** the entity's row index to its position in the new archetype
+
+```lua
+local entity = world:entity()
+-- Entity is in ROOT_ARCHETYPE
+
+world:set(entity, Position, vector.create(10, 20, 30))
+-- Entity moves to [Position] archetype
+
+local Velocity = world:component() :: jecs.Id<vector>
+world:set(entity, Velocity, vector.create(1, 0, 0))
+-- Entity moves to [Position, Velocity] archetype
+
+world:remove(entity, Position)
+-- Entity moves to [Velocity] archetype
+```
+
+<Info>
+This is why adding/removing components is more expensive than setting component values. Moving archetypes requires copying data and updating multiple data structures.
+</Info>
+
+## Archetype Creation
+
+When an entity needs to move to an archetype that doesn't exist yet, jecs creates it. This involves:
+
+1. **Allocate** a new archetype ID (increments max_archetype_id)
+2. **Create** storage columns for each component
+3. **Register** the archetype
+4. **Update** component records
+5. **Propagate** to cached queries that need to update their archetype lists
+
+## Archetype Graph
+
+Archetypes are connected in a **graph structure**. Each archetype has edges that point to other archetypes you can reach by adding or removing components.
+
+For example:
+- `ROOT_ARCHETYPE` has an edge for `+Position` → `[Position]`
+- `[Position]` has an edge for `+Velocity` → `[Position, Velocity]`
+- `[Position]` has a backwards edge for `-Position` → `ROOT_ARCHETYPE`
+
+```
+ROOT_ARCHETYPE
+      |
+      | +Position
+      v
+  [Position]
+      |
+      | +Velocity
+      v
+[Position, Velocity]
+```
+
+## Edge Caching
+
+The archetype graph is **cached**. When you add a component, the ECS first checks if there's already an edge from the current archetype for that component.
+
+**If the edge exists:** Use the cached archetype (fast path)
+
+**If the edge doesn't exist:**
+1. Create a new component list: `[Position, Velocity]` (sorted)
+2. Hash it to get the type string
+3. Check if archetype exists (might have been created by another entity)
+4. If not, create it
+5. Cache the edge in both directions
+
+```lua
+local e1 = world:entity()
+world:set(e1, Position, vector.create(10, 20, 30))
+-- Creates edge: ROOT_ARCHETYPE -> [Position]
+
+local e2 = world:entity()
+world:set(e2, Position, vector.create(40, 50, 60))
+-- Uses cached edge: ROOT_ARCHETYPE -> [Position] (fast!)
+```
+
+Edge caching happens in **both directions**:
+- `[Position]` → `[Position, Velocity]` (for adding Velocity)
+- `[Position, Velocity]` → `[Position]` (for removing Velocity)
+
+## Structure of Arrays (SoA)
+
+Archetypes store component data using a **Structure of Arrays** layout:
+
+```lua
+Archetype [Position, Velocity] = {
+    entities:  [e1,  e2,  e3,  e4],
+    Position:  [p1,  p2,  p3,  p4],
+    Velocity:  [v1,  v2,  v3,  v4],
+}
+```
+
+This is different from an **Array of Structures** (AoS):
+
+```lua
+-- AoS (not used by jecs)
+[
+    { entity: e1, Position: p1, Velocity: v1 },
+    { entity: e2, Position: p2, Velocity: v2 },
+    { entity: e3, Position: p3, Velocity: v3 },
+    { entity: e4, Position: p4, Velocity: v4 },
+]
+```
+
+## Performance Benefits
+
+The archetype + SoA design provides several performance benefits:
+
+### 1. Cache Locality
+
+Component data for the same type is stored contiguously in memory. When you iterate over entities, you access memory sequentially:
+
+```lua
+for entity, pos, vel in world:query(Position, Velocity) do
+    -- Accessing pos and vel in sequential memory locations
+    -- Great for CPU cache performance
+end
+```
+
+### 2. Batch Processing
+
+You can process entire arrays of components at once:
+
+```lua
+for _, archetype in world:query(Position, Velocity):archetypes() do
+    local positions = archetype.columns_map[Position]
+    local velocities = archetype.columns_map[Velocity]
+    
+    -- Process entire arrays in tight loops
+    for i = 1, #positions do
+        positions[i] = positions[i] + velocities[i] * dt
+    end
+end
+```
+
+### 3. Query Efficiency
+
+Queries only iterate over archetypes that match the query. If you query `(Position, Velocity)`, you skip all entities without both components.
+
+```lua
+-- Only iterates archetypes with Position AND Velocity
+for entity, pos, vel in world:query(Position, Velocity) do
+    -- Never sees entities with only Position or only Velocity
+end
+```
+
+## Archetype Fragmentation
+
+Relationships can create many archetypes. Each different target creates a new archetype:
+
+```lua
+local pair = jecs.pair
+local Likes = world:component()
+local alice = world:entity()
+local bob = world:entity()
+local charlie = world:entity()
+
+local e2 = world:entity()
+world:add(e2, pair(Likes, alice))  -- Creates archetype [pair(Likes, alice)]
+
+local e3 = world:entity()
+world:add(e3, pair(Likes, bob))    -- Creates archetype [pair(Likes, bob)]
+
+local e4 = world:entity()
+world:add(e4, pair(Likes, charlie)) -- Creates archetype [pair(Likes, charlie)]
+world:add(e4, pair(Likes, bob))     -- Creates archetype [pair(Likes, bob), pair(Likes, charlie)]
+```
+
+This is why relationships can increase archetype count significantly. Each unique combination creates a new archetype.
+
+<Warning>
+Too many archetypes can slow down query iteration. If you have thousands of unique component combinations, consider restructuring your data.
+</Warning>
+
+## Summary
+
+- **Archetypes** group entities with identical component sets
+- **SoA layout** stores components in separate arrays for cache efficiency
+- **Archetype graph** caches transitions for fast component add/remove
+- **Query efficiency** comes from only iterating matching archetypes
+- **Trade-off**: Adding/removing components is slower than setting values, but queries are very fast
